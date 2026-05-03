@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@keyframes shimmer {
+  0% { background-position: 200% 200%; }
+  50% { background-position: 0% 0%; }
+  100% { background-position: 200% 200%; }
+}
+
+@keyframes fade-slide-up {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes node-appear {
+  0% { opacity: 0; transform: translateX(-8px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes synthesis-reveal {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes amber-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+  50% { box-shadow: 0 0 8px 2px rgba(251, 191, 36, 0.15); }
+}
+
+.node-appear {
+  animation: node-appear 0.25s ease-out both;
+}
+
+.synthesis-reveal {
+  animation: synthesis-reveal 0.5s ease-out both;
+}
+
+.team-card-enter {
+  animation: fade-slide-up 0.35s ease-out both;
+}

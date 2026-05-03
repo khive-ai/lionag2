@@ -5,8 +5,22 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "lionagi[ag2,graph]>=0.23.1",
+    "ag2[ag-ui,gemini,openai]>=0.12.2",
+    "daytona>=0.171",
+    "daytona-sdk>=0.10",
+    "fastapi>=0.115.14",
+    "khive",
+    "lionagi[graph]>=0.23.2",
+    "mcp[cli]>=1.27.0",
+    "nlip-sdk>=0.1.2",
+    "nlip-server>=0.1.2",
+    "tavily-python>=0.7.24",
+    "uvicorn>=0.46.0",
 ]
+
+[tool.uv.sources]
+lionagi = { path = "../lionagi", editable = true }
+khive = { path = "../../../khive/products/khive-python", editable = true }
 
 [build-system]
 requires = ["hatchling"]
