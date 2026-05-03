@@ -65,14 +65,31 @@ def fetch_url_sync(url: str) -> str:
         return f"fetch_url failed for {url}: {exc}"
 
 
+def _resolve_sandbox_python() -> str:
+    """Locate the project venv's Python — the one with numpy/scipy/pandas pre-installed.
+
+    sys.executable can point at the wrong venv when the server is launched from a shell
+    with a different VIRTUAL_ENV active. Walk up from this file to find lionag2/.venv.
+    """
+    import sys
+    here = Path(__file__).resolve()
+    for parent in [here, *here.parents]:
+        candidate = parent / ".venv" / "bin" / "python"
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
+
+
+_SANDBOX_PYTHON = _resolve_sandbox_python()
+
+
 def run_python_sandbox(code: str) -> str:
     """Execute Python with numpy, scipy, pandas, sklearn, matplotlib, datasets, httpx pre-installed.
     30 second timeout. Returns stdout + stderr.
 
-    Uses the same Python interpreter the server runs under (sys.executable), so packages are
-    already cached in the project venv — no per-call install. Add new packages to pyproject.toml.
+    Always uses the project's .venv/bin/python (resolved at import time), independent of
+    whatever VIRTUAL_ENV the server was launched from.
     """
-    import sys
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(code)
@@ -80,7 +97,7 @@ def run_python_sandbox(code: str) -> str:
             path = f.name
         try:
             result = subprocess.run(
-                [sys.executable, path],
+                [_SANDBOX_PYTHON, path],
                 capture_output=True, text=True, timeout=30,
                 cwd=os.path.dirname(path),
             )
