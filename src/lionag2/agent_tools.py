@@ -66,7 +66,13 @@ def fetch_url_sync(url: str) -> str:
 
 
 def run_python_sandbox(code: str) -> str:
-    """Execute Python code with numpy, scipy, pandas, sklearn available. 30 second timeout. Returns stdout + stderr."""
+    """Execute Python with numpy, scipy, pandas, sklearn, matplotlib, datasets, httpx pre-installed.
+    30 second timeout. Returns stdout + stderr.
+
+    Uses the same Python interpreter the server runs under (sys.executable), so packages are
+    already cached in the project venv — no per-call install. Add new packages to pyproject.toml.
+    """
+    import sys
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(code)
@@ -74,7 +80,7 @@ def run_python_sandbox(code: str) -> str:
             path = f.name
         try:
             result = subprocess.run(
-                ["uv", "run", "--with", "numpy,scipy,pandas,scikit-learn,matplotlib", "python", path],
+                [sys.executable, path],
                 capture_output=True, text=True, timeout=30,
                 cwd=os.path.dirname(path),
             )

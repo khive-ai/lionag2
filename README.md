@@ -2,10 +2,67 @@
 
 **Recursive self-exploratory multi-agent research.**
 
-`lionag2` runs a tree of multi-agent research teams that can spawn their own
-sub-investigations, share knowledge through a persistent memory + graph + message
-bus, run real Python code in a sandbox, and produce a structured research paper
-(PDF via LaTeX) with self-correction and quality scoring.
+## What it is
+
+A research engine where a team of 6 specialized agents (Surveyor → DataDigger →
+Theorist → Analyst → Innovator → Critic) investigates a question, then **spawns
+sub-investigations on its own open questions**, recursively, until you hit a
+configured depth limit.
+
+The agents don't just summarize search results — they fetch and read pages,
+formalize the underlying mechanism, run real Python on real datasets to test
+predictions, propose alternative hypotheses, and produce a final structured
+research paper (markdown → LaTeX → PDF) with self-correction and a quality score.
+
+## What it solves
+
+Most "AI research" demos return a Wikipedia-style summary of search snippets.
+That's not research — it's auto-complete. lionag2 forces the system to:
+
+- **Read the actual sources** (`fetch_url`), not just snippets.
+- **Verify claims with code** on real datasets, not toy random simulations.
+- **Build a shared knowledge graph** (entities + links) so parallel branches
+  reuse what siblings discovered.
+- **Cross-team-message** when one branch contradicts another.
+- **Self-correct** the synthesis by fact-checking the draft against the evidence.
+- **Score the result** with structured quality metrics (citation count, evidence
+  quality, novelty, completeness, verdict).
+- **Go deeper, not broader, on recursion** — the depth-aware prompt explicitly
+  shifts goals from "map the territory" to "drill the mechanism" to "empirical
+  specifics" as depth increases.
+
+## How it works
+
+```
+            Research question
+                  │
+                  ▼
+        ┌─────────────────┐
+        │  Root team      │  Surveyor → DataDigger → Theorist → Analyst → Innovator → Critic
+        │  (6 agents)     │  ↓ tools: tavily, fetch_url, run_code, khive memory/graph/comm
+        └─────┬───────────┘
+              │ open questions with novelty ≥ 0.7 spawn child nodes
+              ▼
+       ┌──────┴──────┐
+       │             │
+   child team    child team   ← parallel, depth+1 = deeper not broader
+       │             │
+       └──────┬──────┘
+              ▼
+      cross-section correction (LLM, structured CrossCheckReport)
+              ▼
+      paper synthesis (markdown, with math + code outputs + 30+ citations)
+              ▼
+      self-correction pass (structured SelfCorrectionReport)
+              ▼
+      markdown → LaTeX → PDF
+              ▼
+      quality eval (structured QualityMetrics)
+```
+
+All steps stream live over SSE. The frontend renders the exploration tree, the
+per-agent conversation with tool calls and outputs, and a research-process report
+with all source URLs and stats.
 
 It is built on:
 
