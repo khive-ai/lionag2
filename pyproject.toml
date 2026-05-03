@@ -9,8 +9,7 @@ dependencies = [
     "daytona>=0.171",
     "daytona-sdk>=0.10",
     "fastapi>=0.115.14",
-    "khive",
-    "lionagi[graph]>=0.23.2",
+    "lionagi[graph]>=0.23.3",
     "mcp[cli]>=1.27.0",
     "nlip-sdk>=0.1.2",
     "nlip-server>=0.1.2",
@@ -24,11 +23,8 @@ dependencies = [
     "matplotlib>=3.9",
     "datasets>=3.0",
     "httpx>=0.27",
+    "khive>=1.0.0rc1",
 ]
-
-[tool.uv.sources]
-lionagi = { path = "../lionagi", editable = true }
-khive = { path = "../../../khive/products/khive-python", editable = true }
 
 [build-system]
 requires = ["hatchling"]

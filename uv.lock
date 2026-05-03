@@ -1787,23 +1787,15 @@ wheels = [
 [[package]]
 name = "khive"
 version = "1.0.0rc1"
-source = { editable = "../../../khive/products/khive-python" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.27,<1" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "pydantic", specifier = ">=2.0,<3" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
+sdist = { url = "https://files.pythonhosted.org/packages/aa/95/59a101dbdc5c6bb507bc82fce75b0aec07b9ae80e5b8dc01a753f5eba0b2/khive-1.0.0rc1.tar.gz", hash = "sha256:bda27e3075e40463b6107e87220c36200ffa8842d34379895ccb1dfc74ba53f0", size = 65218, upload-time = "2026-05-03T20:23:41.097Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/eb/2c15b166f8aeb363e3ef8aee5d96431bf68dd2b2dd0590639ba6bcef81fa/khive-1.0.0rc1-py3-none-any.whl", hash = "sha256:d9dcb7c8165a606e918738ffbbf5c2dff0dc47ce4cfc95129b4efa41f8832b9d", size = 25039, upload-time = "2026-05-03T20:23:39.771Z" },
 ]
-provides-extras = ["dev"]
 
 [[package]]
 name = "kiwisolver"
@@ -1950,8 +1942,8 @@ requires-dist = [
     { name = "daytona-sdk", specifier = ">=0.10" },
     { name = "fastapi", specifier = ">=0.115.14" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "khive", editable = "../../../khive/products/khive-python" },
-    { name = "lionagi", extras = ["graph"], editable = "../lionagi" },
+    { name = "khive", specifier = ">=1.0.0rc1" },
+    { name = "lionagi", extras = ["graph"], specifier = ">=0.23.3" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
     { name = "nlip-sdk", specifier = ">=0.1.2" },
@@ -1973,7 +1965,7 @@ dev = [
 [[package]]
 name = "lionagi"
 version = "0.23.3"
-source = { editable = "../lionagi" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiocache" },
     { name = "aiohttp" },
@@ -1987,86 +1979,15 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "tiktoken" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/1e/51/61120d01d49aea897d6e3cd2daf5ba6f1b4555dd66710d4fa313d2353f85/lionagi-0.23.3.tar.gz", hash = "sha256:d742424cede740605e2444d010d2925a5d1089887acf690f6fca079a6f2d27d6", size = 1371359, upload-time = "2026-05-03T20:19:26.308Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/04/e4d488a949b80e969f6ed8fab010765620beb422db5eba70ce832ed493ed/lionagi-0.23.3-py3-none-any.whl", hash = "sha256:7e3130cffbb3ad9faca740f404a37f3ef20741de707619dc1acf731fd0a7d52e", size = 554882, upload-time = "2026-05-03T20:19:23.828Z" },
+]
 
 [package.optional-dependencies]
 graph = [
     { name = "matplotlib" },
     { name = "networkx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "ag2", extras = ["nlip", "openai"], marker = "extra == 'nlip'", specifier = ">=0.12.0" },
-    { name = "ag2", extras = ["nlip", "openai"], marker = "extra == 'sandbox'", specifier = ">=0.12.0" },
-    { name = "ag2", extras = ["openai"], marker = "extra == 'ag2'", specifier = ">=0.12.0" },
-    { name = "aiocache", specifier = ">=0.12.0" },
-    { name = "aiohttp", specifier = ">=3.13.0" },
-    { name = "aiosqlite", marker = "extra == 'sqlite'", specifier = ">=0.21.0" },
-    { name = "anyio", specifier = ">=4.10.0" },
-    { name = "backoff", specifier = ">=2.1.0" },
-    { name = "datamodel-code-generator", marker = "extra == 'schema'", specifier = ">=0.31.2" },
-    { name = "daytona", marker = "extra == 'sandbox'", specifier = ">=0.171.0" },
-    { name = "docling", marker = "extra == 'reader'", specifier = ">=2.91.0" },
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.2.0" },
-    { name = "json-repair", specifier = ">=0.58.0" },
-    { name = "lionagi", extras = ["ag2"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["graph"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["mcp"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["ollama"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["postgres"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["reader"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["rich"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["schema"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["sqlite"], marker = "extra == 'all'" },
-    { name = "lionagi", extras = ["xml"], marker = "extra == 'all'" },
-    { name = "matplotlib", marker = "extra == 'graph'", specifier = ">=3.7.0" },
-    { name = "msgspec", specifier = ">=0.20.0" },
-    { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0.0" },
-    { name = "ollama", marker = "extra == 'ollama'", specifier = ">=0.6.1" },
-    { name = "pydantic", specifier = ">=2.8.0" },
-    { name = "pydantic-settings", specifier = ">=2.8.0" },
-    { name = "pydapter", extras = ["pandas"], specifier = ">=1.3.2" },
-    { name = "pydapter", extras = ["postgres"], marker = "extra == 'postgres'" },
-    { name = "python-dotenv", specifier = ">=1.2.2" },
-    { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0.0" },
-    { name = "tiktoken", specifier = ">=0.10.0" },
-    { name = "uvicorn", marker = "extra == 'nlip'", specifier = ">=0.34.0" },
-    { name = "uvicorn", marker = "extra == 'sandbox'", specifier = ">=0.34.0" },
-    { name = "xmltodict", marker = "extra == 'xml'", specifier = ">=0.12.0" },
-]
-provides-extras = ["reader", "ollama", "mcp", "rich", "schema", "postgres", "sqlite", "graph", "xml", "ag2", "nlip", "sandbox", "all"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "black", extras = ["jupyter"], specifier = ">=26.3.1" },
-    { name = "furo", specifier = ">=2024.8.6" },
-    { name = "hypothesis", specifier = ">=6.152.2" },
-    { name = "ipykernel", specifier = ">=6.29.5" },
-    { name = "ipython", specifier = ">=8.31.0" },
-    { name = "ipywidgets", specifier = ">=8.1.5" },
-    { name = "isort", specifier = ">=6.0.0" },
-    { name = "line-profiler", specifier = ">=5.0.0" },
-    { name = "memory-profiler", specifier = ">=0.61.0" },
-    { name = "mkdocs", specifier = ">=1.6.1" },
-    { name = "mkdocs-git-committers-plugin-2", specifier = ">=2.5.0" },
-    { name = "mkdocs-git-revision-date-localized-plugin", specifier = ">=1.4.7" },
-    { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.6.18" },
-    { name = "mkdocs-minify-plugin", specifier = ">=0.8.0" },
-    { name = "mkdocstrings", specifier = ">=0.30.0" },
-    { name = "mkdocstrings-python", specifier = ">=1.17.0" },
-    { name = "pre-commit", specifier = ">=4.2.0" },
-    { name = "pyarrow", specifier = ">=21.0.0" },
-    { name = "pytest", specifier = ">=9.0.3" },
-    { name = "pytest-asyncio", specifier = ">=1.1.0" },
-    { name = "pytest-benchmark", specifier = ">=5.1.0" },
-    { name = "pytest-cov", specifier = ">=6.1.1" },
-    { name = "pytest-timeout", specifier = ">=2.4.0" },
-    { name = "pytest-xdist", specifier = ">=3.8.0" },
-    { name = "ruff", specifier = ">=0.12.0" },
-    { name = "sphinx", specifier = ">=8.0.0" },
-    { name = "sphinx-autobuild", specifier = ">=2024.10.3" },
-    { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "trio", specifier = ">=0.30.0" },
 ]
 
 [[package]]
