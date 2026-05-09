@@ -34,7 +34,7 @@ from .events import (
 )
 from .middleware import clean_search_results
 from .models import CrossCheckReport, PaperDraft
-from .prompts import ALL_SPECIALISTS, CONNECTOR, CROSS_CHECK, PAPER_WRITER, build_node_instruction
+from .prompts import CONNECTOR, CROSS_CHECK, PAPER_WRITER, build_node_instruction, build_roster
 from .tools import EMISSION_TOOLS, PAPER_TOOLS
 
 logger = logging.getLogger("lionag2.engine")
@@ -285,7 +285,8 @@ class ResearchEngine:
                 prior = "\n".join(f"- [{f.source_agent}] {f.claim}" for f in parent_findings)
                 instruction = f"{instruction}\n\n# Prior findings from depth {depth - 1}\n{prior}"
 
-        roster = list(ALL_SPECIALISTS) + self._extra_specialists
+        has_exa = bool(os.getenv("EXA_API_KEY"))
+        roster = build_roster(self._has_khive, has_exa) + self._extra_specialists
         if self._has_khive:
             roster.append(CONNECTOR)
 
@@ -365,7 +366,9 @@ class ResearchEngine:
         return report
 
     def _build_writer_payload(
-        self, cross_report: CrossCheckReport, prev_paper: PaperDraft | None,
+        self,
+        cross_report: CrossCheckReport,
+        prev_paper: PaperDraft | None,
     ) -> str:
         parts: list[str] = []
 
@@ -390,7 +393,7 @@ class ResearchEngine:
             parts.append(f"\n# Contradictions ({len(contradictions)})\n")
             for c in contradictions:
                 parts.append(
-                    f"- {c.source_a}: \"{c.claim_a}\" vs {c.source_b}: \"{c.claim_b}\" "
+                    f'- {c.source_a}: "{c.claim_a}" vs {c.source_b}: "{c.claim_b}" '
                     f"(severity={c.severity:.1f})\n"
                 )
 
