@@ -26,7 +26,7 @@ class SyncUtils:
 
     @staticmethod
     def lock():
-        return threading.Lock()
+        return threading.RLock()
 
     @staticmethod
     def alock():

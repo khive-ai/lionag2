@@ -9,6 +9,10 @@
 All streams share one Pile. Each stream's FlowStorage writes to the same
 items pile and appends to its own progression. Same event object in
 multiple progressions = object vs reference.
+
+Condition streams do not survive serialization — conditions are callables
+and cannot be serialized. Progression membership IS preserved, but
+auto-routing resumes only after new_stream() is called again.
 """
 
 from __future__ import annotations
@@ -83,23 +87,31 @@ class Flow:
     # -- Stream creation -------------------------------------------------------
 
     def _get_or_create_stream(self, name: str) -> MemoryStream:
-        if name not in self._streams:
-            self._ensure_progression(name)
-            storage = FlowStorage(self, name)
-            self._streams[name] = MemoryStream(storage=storage)
-        return self._streams[name]
+        with self._lock:
+            if name not in self._streams:
+                self._ensure_progression(name)
+                storage = FlowStorage(self, name)
+                self._streams[name] = MemoryStream(storage=storage)
+            return self._streams[name]
 
     def new_stream(self, condition=None, name: str | None = None) -> MemoryStream:
         if name is None:
             name = f"stream_{uuid4().hex[:8]}"
 
         with self._lock:
+            if name in self._conditions:
+                raise ValueError(f"Condition stream '{name}' already exists")
+
             self._ensure_progression(name)
 
             if condition is not None:
                 if isinstance(condition, type):
                     _cond = condition
-                    condition = lambda e, _c=_cond: isinstance(e, _c)
+
+                    def _type_check(e, _c=_cond):
+                        return isinstance(e, _c)
+
+                    condition = _type_check
                 self._conditions[name] = condition
 
                 prog = self._progressions[name]
@@ -119,6 +131,7 @@ class Flow:
             self._progressions[name] = Progression(name=name)
         return self._progressions[name]
 
+    @su._sync
     def progression_items(self, name: str) -> list[Any]:
         prog = self._progressions.get(name)
         if prog is None:
@@ -142,6 +155,7 @@ class Flow:
             prog.clear()
 
     # -- Item management ------------------------------------------------------
+
     @su._sync
     def include(
         self,
@@ -161,7 +175,7 @@ class Flow:
                     prog.include(uid)
 
         if self._conditions:
-            for uid, item in zip(uids, items):
+            for uid, item in zip(uids, items, strict=True):
                 for cname, cond in self._conditions.items():
                     try:
                         if cond(item):
@@ -180,11 +194,13 @@ class Flow:
         return len(self._items)
 
     def __repr__(self) -> str:
-        progs = ", ".join(f"{name}:{len(p)}" for name, p in self._progressions.items())
+        with self._lock:
+            progs = ", ".join(f"{name}:{len(p)}" for name, p in self._progressions.items())
         return f"Flow(items={len(self._items)}, progressions=[{progs}])"
 
     # -- Serialization --------------------------------------------------------
 
+    @su._sync
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -198,12 +214,15 @@ class Flow:
     def from_dict(cls, data: dict[str, Any]) -> Flow:
         flow = cls(name=data.get("name"))
         events = [deserialize_value(d) for d in data.get("items", [])]
-        flow.include(events)
+        if events:
+            flow._items.include(events)
         for pname, uid_strs in data.get("progressions", {}).items():
             flow._ensure_progression(pname)
             prog = flow._progressions[pname]
             for uid_str in uid_strs:
-                prog.include(UUID(uid_str))
+                uid = UUID(uid_str)
+                if flow._items.get(uid) is not None:
+                    prog.include(uid)
         return flow
 
 

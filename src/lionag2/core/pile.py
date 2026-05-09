@@ -70,6 +70,8 @@ class Pile:
                 ids = self._type_index.get(tname, [])
                 if uid in ids:
                     ids.remove(uid)
+                if not ids:
+                    self._type_index.pop(tname, None)
                 removed.append(event)
         return removed
 
@@ -79,12 +81,14 @@ class Pile:
         self._prog.clear()
         self._type_index.clear()
 
-    # -- Reads ----------------------------------------------------------------
+    # -- Reads (all locked) ---------------------------------------------------
 
+    @su._sync
     def get(self, uid: UUID | str) -> Any | None:
         uid = iu.get_id(uid, suppress=True)
         return self._items.get(uid) if uid else None
 
+    @su._sync
     def by_type(self, *event_types: type) -> list[Any]:
         result = []
         for et in event_types:
@@ -95,6 +99,10 @@ class Pile:
         return result
 
     def __getitem__(self, key: Any) -> Any:
+        with self._lock:
+            return self._getitem(key)
+
+    def _getitem(self, key: Any) -> Any:
         if isinstance(key, UUID):
             return self._items[key]
 
@@ -115,43 +123,58 @@ class Pile:
             return [self._items[uid] for uid in key if uid in self._items]
 
         if isinstance(key, Condition):
-            return [ev for ev in self if key(ev)]
+            return [ev for ev in self._iter_unlocked() if key(ev)]
 
         if isinstance(key, _types.UnionType):
             member_types = get_args(key)
-            return [ev for ev in self if isinstance(ev, member_types)]
+            return [ev for ev in self._iter_unlocked() if isinstance(ev, member_types)]
 
         if isinstance(key, type):
             return self.by_type(key)
 
         if callable(key):
-            return [ev for ev in self if key(ev)]
+            return [ev for ev in self._iter_unlocked() if key(ev)]
 
         raise TypeError(f"Unsupported key type: {type(key).__name__}")
 
     def __contains__(self, item: UUID | str | Any) -> bool:
-        if isinstance(item, UUID):
-            return item in self._items
-        uid = iu.get_id(item, suppress=True)
-        return uid is not None and uid in self._items
+        with self._lock:
+            if isinstance(item, UUID):
+                return item in self._items
+            uid = iu.get_id(item, suppress=True)
+            return uid is not None and uid in self._items
 
     def __len__(self) -> int:
-        return len(self._items)
+        with self._lock:
+            return len(self._items)
 
     def __bool__(self) -> bool:
-        return bool(self._items)
+        with self._lock:
+            return bool(self._items)
 
     def __iter__(self) -> Iterator[Any]:
-        for uid in list(self._prog):
-            if uid in self._items:
-                yield self._items[uid]
+        with self._lock:
+            snapshot = list(self._prog)
+        for uid in snapshot:
+            ev = self._items.get(uid)
+            if ev is not None:
+                yield ev
 
+    def _iter_unlocked(self) -> Iterator[Any]:
+        for uid in list(self._prog):
+            ev = self._items.get(uid)
+            if ev is not None:
+                yield ev
+
+    @su._sync
     def items(self) -> list[tuple[UUID, Any]]:
         return [(uid, self._items[uid]) for uid in self._prog if uid in self._items]
 
     def __repr__(self) -> str:
-        types = ", ".join(
-            f"{k.rsplit('.', 1)[-1]}:{v}"
-            for k, v in ((k, len(v)) for k, v in self._type_index.items())
-        )
-        return f"Pile(len={len(self)}, types={{{types}}})"
+        with self._lock:
+            types = ", ".join(
+                f"{k.rsplit('.', 1)[-1]}:{v}"
+                for k, v in ((k, len(v)) for k, v in self._type_index.items())
+            )
+            n = len(self._items)
+        return f"Pile(len={n}, types={{{types}}})"
