@@ -1,19 +1,18 @@
 import asyncio
 import threading
-from collections import deque
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Generic, TypeVar, overload
-from uuid import UUID, uuid4
+from typing import Any
+
 
 class SyncUtils:
-
     @staticmethod
     def _sync(fn: Callable) -> Callable:
         @wraps(fn)
         def wrapper(self, *a: Any, **kw: Any) -> Any:
             with self._lock:
                 return fn(self, *a, **kw)
+
         return wrapper
 
     @staticmethod
@@ -22,12 +21,13 @@ class SyncUtils:
         async def wrapper(self, *a: Any, **kw: Any) -> Any:
             async with self._alock:
                 return await fn(self, *a, **kw)
+
         return wrapper
 
     @staticmethod
     def lock():
-        return threading.Lock()
-    
+        return threading.RLock()
+
     @staticmethod
     def alock():
         return asyncio.Lock()

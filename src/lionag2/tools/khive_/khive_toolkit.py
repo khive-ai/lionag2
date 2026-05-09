@@ -99,7 +99,7 @@ class KhiveToolkit(Toolkit):
             importance: Annotated[float, Field(ge=0, le=1)] = 0.7,
         ) -> ToolResult:
             await client.memory.remember(content=content, importance=importance)
-            return ToolResult(f"Remembered: {content[:100]}")
+            return ToolResult(f"Remembered: {content}")
 
         return _remember
 

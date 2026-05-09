@@ -9,7 +9,6 @@ All are BaseEvent subclasses with auto-stamped UUIDs.
 
 from autogen.beta.events import BaseEvent, Field
 
-
 # ---------------------------------------------------------------------------
 # Research events (specialist → bus via bridge)
 # ---------------------------------------------------------------------------
@@ -19,6 +18,7 @@ class FindingEmitted(BaseEvent):
     claim: str
     evidence: str = ""
     source_agent: str = "unknown"
+    node_id: str = ""
     novelty: float = Field(default=0.5)
     confidence: float = Field(default=0.5)
     depth: int = 0
@@ -58,6 +58,7 @@ class PaperGapEvent(BaseEvent):
 
 class NodeRegistered(BaseEvent):
     """A research node was created."""
+
     node_id: str
     topic: str
     depth: int = 0
@@ -71,22 +72,10 @@ class TeamStarted(BaseEvent):
     depth: int = 0
 
 
-class AgentTurnStarted(BaseEvent):
+class HandoffRequested(BaseEvent):
     __transient__ = True
-    node_id: str
-    agent: str
-
-
-class AgentTurnDone(BaseEvent):
-    node_id: str
-    agent: str
-    chars: int = 0
-
-
-class AgentTurnError(BaseEvent):
-    node_id: str
-    agent: str
-    error: str = ""
+    next_agent: str
+    reason: str = ""
 
 
 class UrlCaptured(BaseEvent):
@@ -97,6 +86,7 @@ class UrlCaptured(BaseEvent):
 
 class TopicSeen(BaseEvent):
     """Normalized topic registered for dedup."""
+
     normalized: str
     node_id: str = ""
 

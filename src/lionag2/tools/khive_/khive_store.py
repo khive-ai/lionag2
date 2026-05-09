@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 PATH_TAG = "kstore:"
 
 
+DEFAULT_IMPORTANCE = 0.8
+
+
 class KhiveKnowledgeStore:
     """AG2 KnowledgeStore backed by khive memory.
 
@@ -51,13 +54,14 @@ class KhiveKnowledgeStore:
         path = _norm(path)
         try:
             result = await self._client.memory.recall(
-                query=f"{PATH_TAG}{path}", limit=1,
+                query=f"{PATH_TAG}{path}",
+                limit=1,
             )
             items = _items(result)
             for item in items:
                 content = _content(item)
                 if content.startswith(f"{PATH_TAG}{path}\n"):
-                    return content[len(f"{PATH_TAG}{path}\n"):]
+                    return content[len(f"{PATH_TAG}{path}\n") :]
             return None
         except Exception:
             logger.debug("khive read failed: %s", path, exc_info=True)
@@ -68,7 +72,7 @@ class KhiveKnowledgeStore:
         try:
             await self._client.memory.remember(
                 content=f"{PATH_TAG}{path}\n{content}",
-                importance=0.8,
+                importance=DEFAULT_IMPORTANCE,
             )
         except Exception:
             logger.debug("khive write failed: %s", path, exc_info=True)
@@ -77,17 +81,18 @@ class KhiveKnowledgeStore:
         prefix = _norm(path).rstrip("/") + "/"
         try:
             result = await self._client.memory.recall(
-                query=f"{PATH_TAG}{prefix}", limit=50,
+                query=f"{PATH_TAG}{prefix}",
+                limit=50,
             )
             children: set[str] = set()
             for item in _items(result):
                 content = _content(item)
                 if not content.startswith(PATH_TAG):
                     continue
-                stored_path = content.split("\n", 1)[0][len(PATH_TAG):]
+                stored_path = content.split("\n", 1)[0][len(PATH_TAG) :]
                 if not stored_path.startswith(prefix):
                     continue
-                remainder = stored_path[len(prefix):]
+                remainder = stored_path[len(prefix) :]
                 if "/" in remainder:
                     children.add(remainder.split("/")[0] + "/")
                 elif remainder:
@@ -101,7 +106,8 @@ class KhiveKnowledgeStore:
         path = _norm(path)
         try:
             result = await self._client.memory.recall(
-                query=f"{PATH_TAG}{path}", limit=10,
+                query=f"{PATH_TAG}{path}",
+                limit=10,
             )
             for item in _items(result):
                 item_id = getattr(item, "id", None)
@@ -136,7 +142,9 @@ class KhiveKnowledgeStore:
         return data[start:stop].decode("utf-8", errors="strict")
 
     async def on_change(
-        self, path: str, callback: ChangeCallback,
+        self,
+        path: str,
+        callback: ChangeCallback,
     ) -> ChangeSubscription:
         return NoopChangeSubscription()
 

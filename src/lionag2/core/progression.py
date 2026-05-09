@@ -1,23 +1,17 @@
-"""Ordered sequence of UUIDs with O(1) membership.
-
-Ported from lionagi — deque-based, not independently thread-safe.
-Pile provides the synchronization.
-"""
+"""Ordered sequence of UUIDs with O(1) membership."""
 
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from typing import overload
 from uuid import UUID
 
 
 class Progression:
-    """Ordered deque of UUIDs with O(1) membership via set."""
-
     __slots__ = ("_order", "_members", "name")
 
-    def __init__(self, order: Iterable[UUID] | None = None, name: str | None = None) -> None:
+    def __init__(self, order: list[UUID] | None = None, name: str | None = None) -> None:
         self._order: deque[UUID] = deque(order or [])
         self._members: set[UUID] = set(self._order)
         self.name = name
@@ -25,11 +19,6 @@ class Progression:
     def append(self, uid: UUID) -> None:
         self._order.append(uid)
         self._members.add(uid)
-
-    def extend(self, uids: Iterable[UUID]) -> None:
-        for uid in uids:
-            self._order.append(uid)
-            self._members.add(uid)
 
     def include(self, uid: UUID) -> bool:
         if uid in self._members:
@@ -51,28 +40,6 @@ class Progression:
         self._members -= uids
         return before - len(self._order)
 
-    def pop(self, index: int = -1) -> UUID:
-        if index == -1 or index == len(self._order) - 1:
-            uid = self._order.pop()
-        elif index == 0:
-            uid = self._order.popleft()
-        else:
-            uid = self._order[index]
-            del self._order[index]
-        if uid not in self._order:
-            self._members.discard(uid)
-        return uid
-
-    def popleft(self) -> UUID:
-        uid = self._order.popleft()
-        if uid not in self._order:
-            self._members.discard(uid)
-        return uid
-
-    def insert(self, index: int, uid: UUID) -> None:
-        self._order.insert(index, uid)
-        self._members.add(uid)
-
     def clear(self) -> None:
         self._order.clear()
         self._members.clear()
@@ -93,14 +60,8 @@ class Progression:
     def __len__(self) -> int:
         return len(self._order)
 
-    def __bool__(self) -> bool:
-        return bool(self._order)
-
     def __iter__(self) -> Iterator[UUID]:
         return iter(self._order)
-
-    def __reversed__(self) -> Iterator[UUID]:
-        return reversed(self._order)
 
     def __repr__(self) -> str:
         return f"Progression(name={self.name!r}, len={len(self)})"
