@@ -1,177 +1,90 @@
-"""khive MCP tools for AG2 agents.
+"""Lightweight event-emission tools for typed handoff.
 
-Connects AG2 agents to khive services via MCP. No wrapping —
-AG2's native MCP support handles tool discovery and execution.
-
-Usage:
-    # In a GroupChat or beta.Agent flow:
-    async with khive_mcp(namespace="flow:research-42") as toolkit:
-        toolkit.register_for_llm(agent)
-        toolkit.register_for_execution(agent)
-
-    # Or get the toolkit for manual registration:
-    async with khive_mcp() as toolkit:
-        tools = toolkit.tools  # list of Tool objects
+These are the ONLY custom tools in lionag2 — everything else
+(search, fetch, code, memory, graph) comes from AG2 native
+toolkits. These emit typed events that observers capture live.
 """
 
-from __future__ import annotations
+from autogen.beta import Context, tool
 
-import logging
-import os
-from contextlib import asynccontextmanager
-from typing import Any
-
-logger = logging.getLogger(__name__)
-
-__all__ = [
-    "khive_mcp",
-    "khive_mcp_config",
-    "register_khive_tools",
-]
+from .events import ContradictionFound, DepthRequested, FindingEmitted, PivotDetected
 
 
-def khive_mcp_config(
-    *,
-    namespace: str = "shared",
-    server_command: str | None = None,
-    server_url: str | None = None,
-) -> dict[str, Any]:
-    """Build MCP server config for khive.
-
-    Two modes:
-    - stdio: spawns khived as subprocess (local)
-    - SSE: connects to remote khive MCP server (Fly.io, sandbox)
-
-    Returns config dict suitable for mcp.StdioServerParameters or SSE.
-    """
-    if server_url:
-        return {
-            "transport": "sse",
-            "url": server_url,
-            "namespace": namespace,
-        }
-
-    command = server_command or "khived"
-    return {
-        "transport": "stdio",
-        "command": command,
-        "args": ["mcp", "start", "--namespace", namespace],
-        "env": {
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": os.environ.get("HOME", ""),
-        },
-    }
-
-
-@asynccontextmanager
-async def khive_mcp(
-    *,
-    namespace: str = "shared",
-    server_command: str | None = None,
-    server_url: str | None = None,
-    use_tools: bool = True,
-    use_resources: bool = False,
-):
-    """Context manager that yields an AG2 Toolkit connected to khive MCP.
-
-    Usage:
-        async with khive_mcp(namespace="flow:42") as toolkit:
-            toolkit.register_for_llm(agent)
-            toolkit.register_for_execution(agent)
-    """
-    from autogen.mcp import create_toolkit
-
-    config = khive_mcp_config(
-        namespace=namespace,
-        server_command=server_command,
-        server_url=server_url,
+@tool
+async def emit_finding(
+    ctx: Context,
+    claim: str,
+    evidence: str = "",
+    novelty: float = 0.5,
+    confidence: float = 0.5,
+) -> str:
+    """Emit a typed finding when you discover a source-backed claim."""
+    agent = str(ctx.variables.get("agent_name", "unknown"))
+    depth = int(ctx.variables.get("depth", 0))
+    await ctx.send(
+        FindingEmitted(
+            claim=claim,
+            evidence=evidence,
+            source_agent=agent,
+            novelty=novelty,
+            confidence=confidence,
+            depth=depth,
+        )
     )
+    return f"Finding emitted: {claim[:80]}"
 
-    if config["transport"] == "stdio":
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
 
-        params = StdioServerParameters(
-            command=config["command"],
-            args=config.get("args", []),
-            env=config.get("env"),
+@tool
+async def request_depth(
+    ctx: Context,
+    question: str,
+    novelty: float = 0.7,
+) -> str:
+    """Request a child research node for a high-value follow-up."""
+    node_id = str(ctx.variables.get("node_id", ""))
+    depth = int(ctx.variables.get("depth", 0))
+    await ctx.send(
+        DepthRequested(
+            question=question,
+            novelty=novelty,
+            parent_node_id=node_id,
+            parent_depth=depth,
         )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                toolkit = await create_toolkit(
-                    session,
-                    use_mcp_tools=use_tools,
-                    use_mcp_resources=use_resources,
-                )
-                logger.info(
-                    "Connected to khive MCP (stdio, namespace=%s): %d tools",
-                    namespace,
-                    len(toolkit.tools),
-                )
-                yield toolkit
-
-    elif config["transport"] == "sse":
-        from mcp import ClientSession
-        from mcp.client.sse import sse_client
-
-        async with sse_client(url=config["url"]) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                toolkit = await create_toolkit(
-                    session,
-                    use_mcp_tools=use_tools,
-                    use_mcp_resources=use_resources,
-                )
-                logger.info(
-                    "Connected to khive MCP (SSE, namespace=%s, url=%s): %d tools",
-                    namespace,
-                    config["url"],
-                    len(toolkit.tools),
-                )
-                yield toolkit
-    else:
-        raise ValueError(f"Unknown transport: {config['transport']}")
+    )
+    return f"Depth requested: {question[:80]}"
 
 
-async def register_khive_tools(
-    agents: list,
-    executor,
-    *,
-    namespace: str = "shared",
-    server_command: str | None = None,
-    server_url: str | None = None,
-    tool_filter: list[str] | None = None,
-):
-    """Register khive MCP tools on multiple AG2 agents.
-
-    If tool_filter is set, only tools whose names contain any of the
-    filter strings are registered. This enables per-agent tool scoping:
-
-        # Researcher gets memory + search
-        await register_khive_tools(
-            [researcher], executor,
-            tool_filter=["memory", "recall", "search"],
+@tool
+async def emit_contradiction(
+    ctx: Context,
+    claim_a: str,
+    claim_b: str,
+    source_a: str = "",
+    source_b: str = "",
+    severity: float = 0.5,
+) -> str:
+    """Flag conflicting claims across branches."""
+    await ctx.send(
+        ContradictionFound(
+            claim_a=claim_a,
+            claim_b=claim_b,
+            source_a=source_a,
+            source_b=source_b,
+            severity=severity,
         )
+    )
+    return "Contradiction flagged"
 
-        # Analyst gets memory + work
-        await register_khive_tools(
-            [analyst], executor,
-            tool_filter=["memory", "work", "store"],
-        )
-    """
-    from autogen import register_function
 
-    async with khive_mcp(
-        namespace=namespace,
-        server_command=server_command,
-        server_url=server_url,
-    ) as toolkit:
-        for tool in toolkit.tools:
-            if tool_filter:
-                if not any(f in tool.name for f in tool_filter):
-                    continue
-            for agent in agents:
-                tool.register_for_llm(agent)
-                tool.register_for_execution(executor)
-                logger.info("Registered tool %r on agent %r", tool.name, agent.name)
+@tool
+async def emit_pivot(
+    ctx: Context,
+    description: str,
+) -> str:
+    """Flag that evidence contradicted the initial hypothesis."""
+    agent = str(ctx.variables.get("agent_name", "unknown"))
+    await ctx.send(PivotDetected(description=description, source_agent=agent))
+    return "Pivot recorded"
+
+
+EMISSION_TOOLS = [emit_finding, request_depth, emit_contradiction, emit_pivot]
