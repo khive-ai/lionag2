@@ -109,10 +109,21 @@ class ExplorationResult(BaseModel):
 
 
 class PaperGap(BaseModel):
-    section: str
-    description: str
-    research_question: str
-    priority: Literal["high", "medium", "low"] = "medium"
+    section: str = Field(description="Which paper section has the gap (e.g. '4.2 Scalability')")
+    description: str = Field(
+        description="What is missing or weak — be specific about what evidence is lacking"
+    )
+    research_question: str = Field(
+        description=(
+            "A concrete, searchable question that would fill this gap. "
+            "Good: 'What are the latency benchmarks for RAFT vs Paxos at 10K nodes?' "
+            "Bad: 'More research needed on consensus protocols.'"
+        )
+    )
+    priority: Literal["high", "medium", "low"] = Field(
+        default="medium",
+        description="high = paper is incomplete without this, medium = would strengthen, low = nice to have",
+    )
 
 
 class PaperDraft(BaseModel):

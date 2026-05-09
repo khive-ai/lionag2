@@ -6,14 +6,13 @@ Research pipeline in lionag2.research.
 
 __version__ = "0.3.0"
 
-from .core import Flow, Pile, PileStorage, Progression
+from .core import Flow, Pile, Progression
 from .research import ResearchEngine, research
 from .research.models import ExplorationResult, PaperDraft, QualityMetrics
 
 __all__ = [
     "Flow",
     "Pile",
-    "PileStorage",
     "Progression",
     "ResearchEngine",
     "ExplorationResult",
