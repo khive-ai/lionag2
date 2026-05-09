@@ -40,6 +40,7 @@ from .events import (
     PivotDetected,
 )
 from .khive_toolkit import KhiveToolkit, khive_available
+from .middleware import clean_search_results
 from .models import (
     CrossCheckReport,
     PaperDraft,
@@ -148,7 +149,11 @@ class ResearchEngine:
         tags = set(tool_tags)
 
         if ("search" in tags or "fetch" in tags) and os.getenv("EXA_API_KEY"):
-            exa = ExaToolkit()
+            exa = ExaToolkit(
+                num_results=5,
+                max_characters=5000,
+                middleware=(clean_search_results,),
+            )
             tools.extend(exa.tools)
 
         if "run_code" in tags and self._sandbox:
@@ -192,7 +197,10 @@ class ResearchEngine:
         @agent.observer(ToolResultsEvent)
         def _capture_urls(event: ToolResultsEvent) -> None:
             for r in event.results:
-                for part in r.result.parts:
+                result = getattr(r, "result", None)
+                if result is None:
+                    continue
+                for part in getattr(result, "parts", []):
                     data = getattr(part, "data", None)
                     if data is None:
                         continue
