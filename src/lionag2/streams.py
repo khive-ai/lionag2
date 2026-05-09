@@ -9,7 +9,7 @@ forward matched events to the bus via bridge subscribers.
 
 import logging
 
-from autogen.beta import MemoryStream
+from autogen.beta import Context, MemoryStream
 from autogen.beta.context import ConversationContext
 from autogen.beta.events import BaseEvent
 
@@ -60,7 +60,7 @@ class StreamManager:
         bus = self.bus
         bus_ctx = self._bus_ctx
 
-        async def _forward(event: BaseEvent, ctx: ConversationContext) -> None:
+        async def _forward(event: BaseEvent, ctx: Context) -> None:
             if isinstance(event, BRIDGE_EVENT_TYPES):
                 await bus.send(event, bus_ctx)
 

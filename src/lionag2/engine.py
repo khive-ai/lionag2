@@ -108,19 +108,20 @@ class ResearchEngine:
             except ImportError:
                 logger.warning("daytona SDK not installed")
 
-        # Khive toolkit — tools for agents that need explicit memory/graph/messaging
-        self._khive: KhiveToolkit | None = None
-        if khive_available() and (khive_api_key or os.getenv("KHIVE_API_KEY")):
-            self._khive = KhiveToolkit(api_key=khive_api_key, namespace=khive_namespace)
+        # Khive config — stored for creating per-agent toolkit instances
+        self._has_khive = khive_available() and bool(khive_api_key or os.getenv("KHIVE_API_KEY"))
+        self._khive_api_key = khive_api_key
+        self._khive_namespace = khive_namespace
 
         # Knowledge store — khive backend when available, AG2 MemoryKnowledgeStore fallback.
         # AG2's harness (WorkingMemoryPolicy, EpisodicMemoryPolicy, compaction,
         # aggregation) all run through this store automatically.
-        if khive_available() and (khive_api_key or os.getenv("KHIVE_API_KEY")):
+        if self._has_khive:
             from .khive_store import KhiveKnowledgeStore
 
             self._knowledge_store = KhiveKnowledgeStore(
-                api_key=khive_api_key, namespace=khive_namespace,
+                api_key=khive_api_key,
+                namespace=khive_namespace,
             )
         else:
             self._knowledge_store = MemoryKnowledgeStore()
@@ -142,22 +143,25 @@ class ResearchEngine:
     # -- Agent construction ---------------------------------------------------
 
     def _resolve_tools(self, tool_tags: tuple[str, ...]) -> list:
-        available: dict[str, Any] = {}
-        if self._exa:
-            available["search"] = self._exa
-            available["fetch"] = self._exa
-        if self._sandbox:
-            available["run_code"] = self._sandbox
-
+        """Build a fresh tool list per agent — avoids deepcopy issues with shared toolkits."""
         tools = []
-        seen = set()
-        for tag in tool_tags:
-            if tag in available and id(available[tag]) not in seen:
-                tools.append(available[tag])
-                seen.add(id(available[tag]))
+        tags = set(tool_tags)
+
+        if ("search" in tags or "fetch" in tags) and os.getenv("EXA_API_KEY"):
+            exa = ExaToolkit()
+            tools.extend(exa.tools)
+
+        if "run_code" in tags and self._sandbox:
+            tools.append(self._sandbox)
+
         tools.extend(EMISSION_TOOLS)
-        if self._khive:
-            tools.append(self._khive)
+
+        if self._has_khive and tags & {"memory", "graph", "messages"}:
+            khive = KhiveToolkit(
+                api_key=self._khive_api_key,
+                namespace=self._khive_namespace,
+            )
+            tools.extend(khive.tools)
         return tools
 
     def _make_agent(self, spec: dict[str, Any]) -> Agent:
@@ -188,12 +192,15 @@ class ResearchEngine:
         @agent.observer(ToolResultsEvent)
         def _capture_urls(event: ToolResultsEvent) -> None:
             for r in event.results:
-                data = r.result.parts[0].data
-                for hit in getattr(data, "results", None) or []:
-                    title = getattr(hit, "title", None)
-                    url = getattr(hit, "url", None)
-                    if title and url:
-                        self.title_to_url[title] = url
+                for part in r.result.parts:
+                    data = getattr(part, "data", None)
+                    if data is None:
+                        continue
+                    for hit in getattr(data, "results", None) or []:
+                        title = getattr(hit, "title", None)
+                        url = getattr(hit, "url", None)
+                        if title and url:
+                            self.title_to_url[title] = url
 
         return agent
 
@@ -218,7 +225,7 @@ class ResearchEngine:
         # Core specialists + user-added extras + Connector (khive only)
         roster = list(ALL_SPECIALISTS)
         roster.extend(self._extra_specialists)
-        if self._khive:
+        if self._has_khive:
             roster.append(CONNECTOR)
 
         self._emit(
@@ -241,7 +248,10 @@ class ResearchEngine:
             self._emit({"type": "agent_turn", "node_id": node_id, "agent": spec["name"]})
 
             try:
-                reply = await agent.ask(turn, stream=team_stream)
+                agent_stream = self.streams.get_or_create(
+                    f"{team_name}_{spec['name']}"
+                )
+                reply = await agent.ask(turn, stream=agent_stream)
                 last_reply = reply.body or ""
                 self._emit(
                     {
