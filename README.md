@@ -1,309 +1,306 @@
 # lionag2
 
-**Recursive self-exploratory multi-agent research.**
+**Pile/Progression/Flow primitives + recursive multi-agent research on AG2 beta.**
 
 ## What it is
 
-A research engine where a team of 6 specialized agents (Surveyor → DataDigger →
-Theorist → Analyst → Innovator → Critic) investigates a question, then **spawns
-sub-investigations on its own open questions**, recursively, until you hit a
-configured depth limit.
+Two things in one package:
 
-The agents don't just summarize search results — they fetch and read pages,
-formalize the underlying mechanism, run real Python on real datasets to test
-predictions, propose alternative hypotheses, and produce a final structured
-research paper (markdown → LaTeX → PDF) with self-correction and a quality score.
+1. **`lionag2.core`** — portable data structures for AG2 event streams: ID-keyed ordered collections (Pile), ordered sequences (Progression), and shared multi-stream state (Flow). Thread-safe, async-safe, AG2 Condition DSL compatible.
 
-## What it solves
+2. **`lionag2.research`** — a recursive research engine where 7 specialized agents investigate a question, spawn sub-investigations on novel findings, cross-check for contradictions, and produce a structured paper with quality scoring. Built entirely on AG2 beta primitives + the core module.
 
-Most "AI research" demos return a Wikipedia-style summary of search snippets.
-That's not research — it's auto-complete. lionag2 forces the system to:
+## Install
 
-- **Read the actual sources** (`fetch_url`), not just snippets.
-- **Verify claims with code** on real datasets, not toy random simulations.
-- **Build a shared knowledge graph** (entities + links) so parallel branches
-  reuse what siblings discovered.
-- **Cross-team-message** when one branch contradicts another.
-- **Self-correct** the synthesis by fact-checking the draft against the evidence.
-- **Score the result** with structured quality metrics (citation count, evidence
-  quality, novelty, completeness, verdict).
-- **Go deeper, not broader, on recursion** — the depth-aware prompt explicitly
-  shifts goals from "map the territory" to "drill the mechanism" to "empirical
-  specifics" as depth increases.
+```bash
+pip install lionag2
 
-## How it works
+# With server support
+pip install "lionag2[server]"
 
-```
-            Research question
-                  │
-                  ▼
-        ┌─────────────────┐
-        │  Root team      │  Surveyor → DataDigger → Theorist → Analyst → Innovator → Critic
-        │  (6 agents)     │  ↓ tools: tavily, fetch_url, run_code, khive memory/graph/comm
-        └─────┬───────────┘
-              │ open questions with novelty ≥ 0.7 spawn child nodes
-              ▼
-       ┌──────┴──────┐
-       │             │
-   child team    child team   ← parallel, depth+1 = deeper not broader
-       │             │
-       └──────┬──────┘
-              ▼
-      cross-section correction (LLM, structured CrossCheckReport)
-              ▼
-      paper synthesis (markdown, with math + code outputs + 30+ citations)
-              ▼
-      self-correction pass (structured SelfCorrectionReport)
-              ▼
-      markdown → LaTeX → PDF
-              ▼
-      quality eval (structured QualityMetrics)
+# With khive persistent knowledge
+pip install "lionag2[khive]"
 ```
 
-All steps stream live over SSE. The frontend renders the exploration tree, the
-per-agent conversation with tool calls and outputs, and a research-process report
-with all source URLs and stats.
+## Quick start
 
-It is built on:
+### Research
 
-- **AG2** (AutoGen) — multi-agent GroupChat with tool calling and handoff conditions
-- **lionagi** — provider-agnostic LLM orchestration, structured output, hooks, sandboxes
-- **khive** — persistent memory, graph (entities + links), cross-team communication
-- **OpenRouter** routing to **Google Gemini** for the agents
-- **Tavily** for web search
+```python
+from lionag2 import ResearchEngine
 
----
+engine = ResearchEngine(model="gpt-5.4-mini", max_depth=2)
+paper = await engine.run("What causes hallucinations in large language models?")
 
-## Why "recursive" and not a static DAG?
+print(paper.as_markdown())       # Full paper
+print(paper.quality_score)       # 0-1 quality assessment
+print(engine.flow)               # Flow(items=291, progressions=[...])
+```
 
-A typical multi-agent research pipeline plans the teams up front and runs them
-to completion: one DAG, one report. That's fine when you already know the
-shape of the question.
+### Core primitives
 
-`lionag2` instead lets the agents **decide what to investigate next based on
-what they just discovered**. Each exploration node:
+```python
+from lionag2 import Pile, Flow
+from autogen.beta.events import BaseEvent, Field
 
-1. Runs a multi-agent team (Surveyor → Analyst → Critic by default).
-2. Produces structured findings, code outputs, citations, and **open questions**
-   — each scored for novelty.
-3. Any open question with high enough novelty spawns a child exploration node
-   at the next depth, with the parent's findings injected as context.
-4. The tree expands breadth-first up to `max_depth`.
+class Finding(BaseEvent):
+    claim: str = Field(kw_only=False)
+    novelty: float = Field(default=0.5)
 
-This means surprising results lead to more exploration, while obvious /
-already-covered questions get pruned. The exploration is shaped by what the
-agents actually find, not by an upfront plan.
+# Pile — ID-keyed, ordered, type-indexed
+pile = Pile()
+pile.include([Finding("spin fluctuations", novelty=0.9), Finding("phonon weak", novelty=0.3)])
 
----
+pile[Finding]                         # all Findings
+pile[Finding.novelty > 0.7]           # AG2 Condition DSL
+pile[0]                               # by index
+pile[some_uuid]                       # by ID
+
+# Flow — shared pile + named streams
+flow = Flow(name="research")
+await agent.ask("...", stream=flow.streams["surveyor"])
+await agent.ask("...", stream=flow.streams["analyst"])
+
+flow.items[Finding]                   # all findings across all streams
+flow["surveyor"]                      # events in surveyor's order
+flow.new_stream(Finding.novelty > 0.7, name="high_novelty")  # auto-routed view
+```
+
+### Persistence & replay
+
+```python
+import json
+
+# Save
+data = engine.flow.to_dict()
+json.dump(data, open("run.json", "w"), default=str)
+
+# Reconstruct — polymorphic, IDs preserved
+flow = Flow.from_dict(json.load(open("run.json")))
+flow.items[FindingEmitted]            # correct types restored
+```
+
+```bash
+# Replay execution timeline
+python example/replay.py run.json
+python example/replay.py run.json --stats
+python example/replay.py run.json -t FindingEmitted --min-novelty 0.7
+```
 
 ## Architecture
 
 ```
-                 ┌─────────────────────────────────────────────┐
-                 │  ExplorationTree (root topic, max_depth)    │
-                 └─────────────────────────────────────────────┘
-                                       │
-                  ┌────────────────────┼────────────────────┐
-                  ▼                    ▼                    ▼
-            Node d=0:topic       Node d=1:Q1          Node d=1:Q2
-            ┌───────────┐       ┌───────────┐        ┌───────────┐
-            │  TEAM     │       │  TEAM     │        │  TEAM     │
-            │ Surveyor  │       │ Surveyor  │        │ Surveyor  │
-            │ Analyst   │       │ Analyst   │        │ Analyst   │
-            │ Critic    │       │ Critic    │        │ Critic    │
-            └─────┬─────┘       └─────┬─────┘        └─────┬─────┘
-                  │                   │                    │
-              tools fire ──── shared knowledge bus ────────┘
-                              memory + graph + comm
-                                      │
-                                      ▼
-                           ┌────────────────────┐
-                           │ cross-section      │
-                           │ correction (LLM)   │
-                           └─────────┬──────────┘
-                                     ▼
-                           ┌────────────────────┐
-                           │ paper synthesis    │
-                           └─────────┬──────────┘
-                                     ▼
-                           ┌────────────────────┐
-                           │ self-correction    │
-                           │ pass               │
-                           └─────────┬──────────┘
-                                     ▼
-                           ┌────────────────────┐
-                           │ markdown → LaTeX   │
-                           │ → PDF              │
-                           └─────────┬──────────┘
-                                     ▼
-                           ┌────────────────────┐
-                           │ quality eval       │
-                           │ (structured score) │
-                           └────────────────────┘
+                    Research question
+                          │
+                          ▼
+               ┌────────────────────┐
+               │   ResearchEngine   │
+               │   (Flow-native)    │
+               └────────┬───────────┘
+                        │
+    ┌───────────────────┼───────────────────┐
+    ▼                   ▼                   ▼
+  Root team        Child team          Child team
+  (7 agents)       (depth+1)          (depth+1)
+    │                   │                   │
+    └───────────────────┴───────────────────┘
+                        │
+              All events in Flow.items (Pile)
+              Each stream = a Progression view
+                        │
+                ┌───────┴───────┐
+                ▼               ▼
+          Cross-check     Paper loop
+          (structured)    (iterative)
+                │               │
+                └───────┬───────┘
+                        ▼
+                   PaperDraft
+              (quality scored)
 ```
 
 ### Default agent roster
 
-| Agent | Tools | Job |
+| Agent | Tools | Role |
 |---|---|---|
-| **Surveyor** | `tavily_search`, `memory_recall`, `graph_search`, `list_messages` | Find 8-12 academic sources, list with TITLE / AUTHORS / YEAR / URL / contribution |
-| **Analyst** | `run_code`, `tavily_search`, `memory_recall`, `memory_remember`, `graph_add_entity`, `graph_add_link` | Pick a quantitative claim, write real Python (numpy/scipy/pandas/sklearn), execute it, build the knowledge graph |
-| **Critic** | `tavily_search`, `memory_recall`, `graph_neighbors`, `send_message` | Stress-test the weakest claim, escalate contradictions to other branches via cross-team messages, produce the final structured summary |
+| **Surveyor** | search, fetch, memory, graph, messages | Literature scout — broad coverage, alternative framings |
+| **DataDigger** | search, fetch, memory, graph | Dataset hunter — real datasets, benchmarks |
+| **Theorist** | search, fetch, memory | Mechanism formalizer — equations, assumptions |
+| **Analyst** | search, fetch, run_code, memory, graph | Quantitative analyst — real code on real data |
+| **Innovator** | search, fetch, memory, graph | Alternative hypothesis generator |
+| **Critic** | search, fetch, memory, graph, messages | Adversarial reviewer — stress-test + structured summary |
+| **Connector** | memory, graph | Knowledge graph weaver (khive only) |
 
-The agent roster is fully configurable per request — POST a custom `agents` list
-to `/api/explore` to swap roles, tools, or system prompts.
+### Reactive coordination
 
-### Shared knowledge
+The research tree emerges from event flow, not imperative loops:
 
-All teams across all branches share three communication channels:
+```
+FindingEmitted(novelty=0.9)
+  → EventWatch fires
+  → DepthRequested emitted to bus
+  → EventWatch fires
+  → child team spawns at depth+1
 
-1. **`memory`** (semantic memory) — store / recall facts via natural language queries.
-2. **`graph`** (knowledge graph) — add typed entities (papers, methods, concepts)
-   and typed links (`cites`, `extends`, `contradicts`, `uses_method`, ...). Other
-   teams can `graph_search` and `graph_neighbors` to navigate it.
-3. **`communication`** (cross-team messaging) — when Critic in branch A finds a
-   contradiction with branch B's findings, it can `send_message(to_team='branch_B', ...)`
-   so B sees the flag at the start of its next turn.
+PaperGapEvent(priority="high")
+  → EventWatch fires
+  → DepthRequested
+  → child fills the gap
+  → paper rewrites with new evidence
+```
 
-This is what makes parallel branches more than just "the same agent run N times".
+### Flow — the state layer
 
-### Verification protocol
+All coordination state lives in the Flow as typed events:
 
-A claim is more credible when:
+| Event | Replaces | Purpose |
+|---|---|---|
+| `NodeRegistered` | `_node_depths` dict | Node metadata with stream name |
+| `TopicSeen` | `_seen_topics` set | Deduplication |
+| `UrlCaptured` | `title_to_url` dict | Citation grounding |
+| `AgentTurnDone` | log messages | Agent execution trace |
+| `PaperDrafted` | inline state | Paper quality tracking |
+| `ExplorationComplete` | return value only | Final stats |
 
-- A real citation can be retrieved by tavily.
-- A code block produced a numerical result consistent with the claim.
-- Another branch independently corroborated it.
-- Critic's stress-test could not knock it down.
+This means the entire execution is replayable from `flow.to_dict()`.
 
-Each `Finding` carries a `confidence` score (0-1). The cross-section correction
-pass (after all branches finish) and the self-correction pass (after paper
-synthesis) explicitly hunt for unsupported numbers and fabricated citations.
+## Core module
 
-### Quality evaluation
+### Pile
 
-The final pass produces a structured `QualityMetrics` record:
+Thread-safe (RLock), async-safe (asyncio.Lock), ID-keyed ordered collection. Every item gets a UUID `lion_id` on inclusion. Supports AG2's Condition DSL as `__getitem__` keys:
 
 ```python
-class QualityMetrics(BaseModel):
-    citation_count: int
-    novelty_score: float          # 0..1
-    evidence_quality: float        # 0..1
-    contradiction_count: int
-    correction_count: int
-    coverage_score: float          # 0..1
-    paper_completeness: float      # 0..1
-    verdict: str                   # "publishable" | "needs work" | "insufficient"
+pile[SomeType]                        # by type
+pile[SomeType.field > value]          # AG2 OpCondition
+pile[TypeA | TypeB]                   # AG2 OrCondition (via _ConditionMeta)
+pile[lambda e: ...]                   # predicate
+pile[uuid]                            # by ID
+pile[0], pile[-3:]                    # by index/slice
+pile.evict(predicate)                 # active context management
+pile.by_type(TypeA, TypeB)            # multi-type lookup
 ```
 
----
+### Progression
 
-## Running it
+Ordered deque of UUIDs with O(1) membership. Decoupled from storage — multiple Progressions can reference the same Pile items (object vs reference).
 
-### Environment
+### Flow
+
+Shared `items: Pile` + named streams. Each stream is a `MemoryStream` backed by `FlowStorage` — an AG2 `Storage` protocol adapter that writes to the shared pile and a named progression.
+
+```python
+flow = Flow()
+flow.streams["agent_a"]              # MemoryStream (pass to agent.ask)
+flow.streams["bus"]                   # coordination bus
+flow.items[SomeType]                  # all events of type
+flow["agent_a"]                       # events in agent_a's progression order
+flow.new_stream(condition, name=...)  # auto-routed materialized view
+flow.evict(pred, progressions=["a"]) # remove from one view, keep in pile
+flow.to_dict() / Flow.from_dict()    # polymorphic persist/reconstruct
+```
+
+### SafeSlidingWindowPolicy
+
+Drop-in replacement for AG2's `SlidingWindowPolicy`. Ensures tool call/result pairing across the entire assembled context, not just the leading edge.
+
+```python
+from lionag2.core import SafeSlidingWindowPolicy
+
+agent = Agent("x", ..., assembly=[
+    ConversationPolicy(),
+    SafeSlidingWindowPolicy(max_events=40, transparent=True),
+])
+```
+
+## Server
 
 ```bash
-# .env at repo root
-OPENROUTER_API_KEY=sk-or-v1-...        # Gemini via OpenRouter
-GEMINI_API_KEY=sk-or-v1-...            # alias of OPENROUTER_API_KEY
-TAVILY_API_KEY=tvly-...                # web search
-KHIVE_API_KEY=sk-khive-...             # khive memory + graph + communication
-KHIVE_BASE_URL=https://khive-mcp.fly.dev
+# ag-ui protocol (CopilotKit/Vercel AI SDK compatible)
+lionag2-server --port 8000
+
+# Endpoints
+POST /              # ag-ui protocol
+POST /api/research  # SSE stream of engine events
+GET  /health        # service status
 ```
 
-### Server
+## CLI
 
 ```bash
-cd /path/to/lionag2
-uv run python scripts/agui_server.py
-# → http://localhost:8765
+# Direct research run
+lionag2 "What causes LLM hallucinations?" --max-depth 2 --model gpt-5.4-mini
 ```
 
-### Trigger an exploration
+## Configuration
+
+| Parameter | Default | Description |
+|---|---|---|
+| `model` | `gpt-5.4-mini` | Model for all agents (1M context) |
+| `max_depth` | 3 | Maximum recursion depth |
+| `novelty_threshold` | 0.7 | Minimum novelty to spawn a child |
+| `paper_max_iterations` | 2 | Max paper rewrite cycles |
+| `paper_quality_threshold` | 0.7 | Quality score to accept paper |
+| `khive_api_key` | env | Optional khive for persistent knowledge |
+| `on_event` | None | SSE callback for live progress |
+
+## Environment
 
 ```bash
-curl -N -X POST http://localhost:8765/api/explore \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "topic": "Does multi-agent debate improve LLM factual accuracy?",
-    "max_depth": 2,
-    "max_concurrent": 2
-  }'
+OPENAI_API_KEY=sk-...              # Required
+EXA_API_KEY=...                    # For search (optional but recommended)
+DAYTONA_API_KEY=...                # For code execution sandbox (optional)
+KHIVE_API_KEY=...                  # For persistent knowledge graph (optional)
+KHIVE_BASE_URL=https://...         # khive server URL
 ```
 
-The response is an SSE stream. Event types include:
-
-| Event | Payload |
-|---|---|
-| `tree_init` | `root_id`, `topic`, `max_depth` |
-| `node_active` | `node_id`, `topic`, `depth` |
-| `team_active` | `node_id`, `agents` (with name, role, tools) |
-| `agent_message` | `node_id`, `agent`, `content` (per turn) |
-| `tool_call` | `node_id`, `agent`, `tool`, `args` |
-| `tool_result` | `node_id`, `agent`, `output` |
-| `speaker_change` | `node_id`, `info` |
-| `finding` | `node_id`, `claim`, `evidence` |
-| `code_start` / `code_result` | `node_id`, `code`, `output`, `exit_code` |
-| `child_spawned` | `parent_id`, `child_id`, `question`, `novelty_score`, `depth` |
-| `node_pruned` | `node_id`, `question`, `reason` |
-| `node_complete` | `node_id`, `finding_count`, `children_count` |
-| `cross_check` | `corrections` (full text) |
-| `synthesis` | `text` (full paper) |
-| `self_correct` | `revised`, `original_length`, `revised_length` |
-| `pdf_ready` | `path` |
-| `quality_eval` | `metrics` (QualityMetrics) |
-| `exploration_done` | `total_nodes`, `total_findings`, `max_depth_reached`, `pdf_path` |
-
-### Custom agent roster
-
-```jsonc
-POST /api/explore
-{
-  "topic": "...",
-  "max_depth": 2,
-  "agents": [
-    {
-      "name": "DataDigger",
-      "role": "Dataset hunter",
-      "tools": ["tavily_search", "graph_add_entity"],
-      "system_prompt": "Find datasets relevant to the topic. Add each as a graph entity. Hand off when done."
-    },
-    { "name": "Modeler",  "role": "...", "tools": ["run_code", "memory_remember"], "system_prompt": "..." },
-    { "name": "Critic",   "role": "...", "tools": ["tavily_search", "memory_recall", "send_message"], "system_prompt": "..." }
-  ]
-}
-```
-
-The first agent in the list is the entry point. Each non-terminal agent's
-`after_work` is mechanically chained to the next agent so the pipeline
-always reaches the terminal critic, even if LLM-condition handoffs don't fire.
-
----
-
-## What you get out
-
-- **PDF**: `src/data/papers/{slug}.pdf` — full paper compiled from markdown via LaTeX.
-- **Synthesis text**: streamed in the `synthesis` event (raw markdown).
-- **Self-corrected version**: streamed in the `self_correct` event.
-- **Quality score**: streamed in the `quality_eval` event.
-- **Exploration tree**: every node, every finding, every code block, every spawned
-  child available in the SSE stream for visualization.
-
----
-
-## Files
+## Package structure
 
 ```
-src/lionag2/
-  explore.py          # the recursive engine — NodeStatus, ExplorationTree, run_exploration,
-                      # explore_node, _run_team_exploration, _cross_check, _write_paper,
-                      # _self_correct, _generate_pdf, _evaluate_quality
-  agent_tools.py      # the tool registry — tavily, run_code, memory, graph, communication
-  models.py           # ResearchPlan / TeamSpec / TeamResult (legacy static-DAG path)
-  flow.py, plan.py, execute.py  # legacy static-DAG entry points (kept for back-compat)
-scripts/
-  agui_server.py      # FastAPI SSE server — /api/explore, /api/explore/config, ...
-  test_ag2_openrouter.py  # standalone debug script for AG2 + OpenRouter
-frontend/
-  src/                # React + Vite + Tailwind UI showing the exploration tree
+lionag2/
+├── core/                           # Portable primitives
+│   ├── pile.py                     # Pile — ID-keyed ordered collection
+│   ├── progression.py              # Progression — ordered UUID deque
+│   ├── flow.py                     # Flow — shared pile + named streams
+│   ├── policies.py                 # SafeSlidingWindowPolicy
+│   └── utils/                      # IDUtils, SyncUtils
+├── tools/
+│   └── khive_/                     # KhiveKnowledgeStore, KhiveToolkit
+├── research/                       # Recursive research pipeline
+│   ├── engine.py                   # Flow-native engine
+│   ├── events.py                   # Research + coordination events
+│   ├── models.py                   # PaperDraft, CrossCheckReport, etc.
+│   ├── prompts.py                  # 7 specialist prompts
+│   ├── tools.py                    # 4 emission tools
+│   ├── middleware.py               # HTML cleaning for Exa
+│   ├── server.py                   # ag-ui + SSE server
+│   └── cli.py                      # CLI entry
+├── notebooks/                      # 12-part tutorial series
+└── example/                        # minimal.py, full_paper.py, replay.py
 ```
+
+## Notebooks
+
+12-part tutorial building up from AG2 basics to the full engine:
+
+| # | Topic |
+|---|-------|
+| 01 | Getting started — Agent + Exa + observer pattern |
+| 02 | Typed events & structured output |
+| 03 | Tool middleware (HTML cleaning) |
+| 04 | Stream architecture (bus + bridges) |
+| 05 | Reactive watches (EventWatch, CadenceWatch) |
+| 06 | Assembly policies & knowledge |
+| 07 | Specialist roster & depth-aware prompts |
+| 08 | khive integration (KnowledgeStore, Toolkit) |
+| 09 | Cross-check & iterative paper loop |
+| 10 | Recursive depth expansion |
+| 11 | ag-ui server |
+| 12 | Capstone — full engine end-to-end |
+
+## Built on
+
+- [AG2](https://github.com/ag2ai/ag2) (beta) — agents, streams, watches, tools, knowledge
+- [Exa](https://exa.ai) — neural search
+- [Daytona](https://daytona.io) — code execution sandbox
+- [khive](https://khive.ai) — persistent memory, knowledge graph, communication

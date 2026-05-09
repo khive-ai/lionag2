@@ -30,8 +30,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from .khive_store import KhiveKnowledgeStore
-from .khive_toolkit import KhiveToolkit, khive_available
+from ..tools import KhiveKnowledgeStore, KhiveToolkit, khive_available
 from .models import ExplorationResult
 from .prompts import ALL_SPECIALISTS, CONNECTOR
 from .tools import EMISSION_TOOLS
@@ -192,9 +191,65 @@ async def health(request: Request):
     )
 
 
+async def research_sse(request: Request):
+    """SSE endpoint that wraps ResearchEngine.run() — streams engine events for the tree UI."""
+    import asyncio
+    import json
+
+    from starlette.responses import StreamingResponse
+
+    from .engine import ResearchEngine
+
+    body = await request.json()
+    topic = body.get("topic", "").strip()
+    if not topic:
+        return JSONResponse({"error": "topic is required"}, status_code=400)
+
+    max_depth = body.get("max_depth", 2)
+    model = body.get("model", "gpt-5.4-mini")
+
+    queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    def on_event(event: dict) -> None:
+        queue.put_nowait(event)
+
+    engine = ResearchEngine(
+        model=model,
+        max_depth=max_depth,
+        on_event=on_event,
+    )
+
+    async def run_and_signal():
+        try:
+            await engine.run(topic)
+        except Exception as exc:
+            queue.put_nowait({"type": "error", "message": str(exc)})
+        finally:
+            queue.put_nowait(None)
+
+    async def event_stream():
+        task = asyncio.create_task(run_and_signal())
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 app = Starlette(
     routes=[
         Route("/", agui_endpoint, methods=["POST"]),
+        Route("/api/research", research_sse, methods=["POST"]),
         Route("/health", health, methods=["GET"]),
     ],
     middleware=[
@@ -230,7 +285,7 @@ def serve() -> None:
     _coordinator = _build_coordinator(model=args.model)
 
     uvicorn.run(
-        "lionag2.server:app",
+        "lionag2.research.server:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

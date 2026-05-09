@@ -1,11 +1,20 @@
-"""lionag2 — reactive recursive research on AG2 beta."""
+"""lionag2 — reactive recursive research on AG2 beta.
 
-__version__ = "0.2.0"
+Core primitives (Pile, Progression, Flow) in lionag2.core.
+Research pipeline in lionag2.research.
+"""
 
-from .engine import ResearchEngine, research
-from .models import ExplorationResult, PaperDraft, QualityMetrics
+__version__ = "0.3.0"
+
+from .core import Flow, Pile, PileStorage, Progression
+from .research import ResearchEngine, research
+from .research.models import ExplorationResult, PaperDraft, QualityMetrics
 
 __all__ = [
+    "Flow",
+    "Pile",
+    "PileStorage",
+    "Progression",
     "ResearchEngine",
     "ExplorationResult",
     "PaperDraft",

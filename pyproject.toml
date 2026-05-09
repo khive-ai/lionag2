@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lionag2"
-version = "0.2.0"
-description = "Native AG2-beta recursive exploratory research pipeline"
+version = "0.3.0"
+description = "Pile/Progression/Flow primitives + recursive research on AG2 beta"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -23,8 +23,8 @@ server = ["starlette>=0.37", "uvicorn[standard]>=0.30", "ag2[ag-ui]>=0.12.3"]
 khive = ["khive>=1.0.0rc"]
 
 [project.scripts]
-lionag2 = "lionag2.cli:main"
-lionag2-server = "lionag2.server:serve"
+lionag2 = "lionag2.research.cli:main"
+lionag2-server = "lionag2.research.server:serve"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lionag2"]
