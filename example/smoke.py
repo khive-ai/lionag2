@@ -1,7 +1,6 @@
-"""Smoke test — full engine, depth=1."""
+"""Smoke test — full engine, depth=1, with flow summary."""
 
 import asyncio
-import os
 
 from dotenv import load_dotenv
 
@@ -10,12 +9,20 @@ load_dotenv()
 
 async def main():
     from lionag2 import ResearchEngine
+    from lionag2.research.events import AgentTurnError, FindingEmitted, NodeRegistered
 
     def on_event(e):
         t = e.get("type", "?")
-        detail = e.get("claim", e.get("agent", e.get("question", "")))
-        if detail:
-            print(f"  [{t}] {str(detail)[:80]}")
+        if t == "AgentTurnStarted":
+            return
+        if t == "AgentTurnDone":
+            print(f"  <- {e.get('agent')} ({e.get('chars', 0):,} chars)")
+        elif t == "AgentTurnError":
+            print(f"  !! {e.get('agent')} ERR: {str(e.get('error', ''))[:60]}")
+        elif t == "FindingEmitted":
+            print(f"  ** novelty={e.get('novelty')} {str(e.get('claim', ''))[:60]}")
+        elif t == "ExplorationComplete":
+            print(f"  == nodes={e.get('total_nodes')} findings={e.get('total_findings')} q={e.get('paper_quality')}")
         else:
             print(f"  [{t}]")
 
@@ -32,10 +39,20 @@ async def main():
         "What are the failure modes of chain-of-thought prompting?"
     )
 
-    print(f"\n--- Done ---")
-    print(f"Quality: {paper.quality_score}")
-    print(f"Length: {len(paper.body_markdown)} chars")
-    print(f"\n{paper.as_markdown()}")
+    print("\n--- Results ---")
+    print(f"Quality: {paper.quality_score:.2f}")
+    print(f"Paper:   {len(paper.body_markdown):,} chars")
+    print(f"Flow:    {engine.flow}")
+
+    nodes = engine.flow.items.by_type(NodeRegistered)
+    findings = engine.flow.items.by_type(FindingEmitted)
+    errors = engine.flow.items.by_type(AgentTurnError)
+    print(f"Nodes:   {len(nodes)}")
+    print(f"Findings:{len(findings)}")
+    print(f"Errors:  {len(errors)}")
+    print(f"URLs:    {len(engine.urls)}")
+
+    print(f"\n{paper.as_markdown()[:500]}...")
 
 
 asyncio.run(main())
