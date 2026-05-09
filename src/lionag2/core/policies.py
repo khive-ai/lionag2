@@ -21,7 +21,8 @@ def ensure_tool_pairing(events: list[BaseEvent]) -> list[BaseEvent]:
                     call_ids.add(cid)
 
     return [
-        e for e in events
+        e
+        for e in events
         if not isinstance(e, ToolResultsEvent)
         or any(getattr(r, "parent_id", None) in call_ids for r in e.results)
     ]
@@ -48,7 +49,7 @@ class SafeSlidingWindowPolicy:
         total = len(events)
         if total <= self._max:
             return prompts, events
-        trimmed = ensure_tool_pairing(events[-self._max:])
+        trimmed = ensure_tool_pairing(events[-self._max :])
         if self._transparent:
             prompts = prompts + [f"[{self.name}] Showing last {len(trimmed)} of {total} events."]
         return prompts, trimmed
