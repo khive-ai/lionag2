@@ -20,7 +20,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10"]
 server = ["starlette>=0.37", "uvicorn[standard]>=0.30", "ag2[ag-ui]>=0.12.3"]
+exa = ["ag2[exa]"]
+sandbox = ["ag2[daytona]"]
 khive = ["khive>=1.0.0rc"]
+
 
 [project.scripts]
 lionag2 = "lionag2.research.cli:main"
