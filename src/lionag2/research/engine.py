@@ -533,6 +533,75 @@ class ResearchEngine:
     def urls(self) -> dict[str, str]:
         return {u.title: u.url for u in self.flow.items.by_type(UrlCaptured)}
 
+    def export_conversations(self) -> dict[str, list[dict[str, str]]]:
+        """Extract per-agent conversations from flow progressions.
+
+        Returns dict: progression_name → list of {role, content} messages.
+        """
+        from autogen.beta.events import BaseEvent
+        from autogen.beta.events.tool_events import ToolCallsEvent, ToolResultsEvent
+
+        convos: dict[str, list[dict[str, str]]] = {}
+        for pname in sorted(self.flow._progressions.keys()):
+            if not pname.startswith("team_") and pname not in ("cross_check",) \
+               and not pname.startswith("paper_"):
+                continue
+            messages: list[dict[str, str]] = []
+            for ev in self.flow[pname]:
+                ev_type = type(ev).__name__
+                if ev_type == "ModelRequest":
+                    for part in getattr(ev, "parts", []):
+                        text = getattr(part, "content", None) or str(part)
+                        if text:
+                            messages.append({"role": "user", "content": text[:5000]})
+                elif ev_type == "ModelResponse":
+                    for part in getattr(ev, "parts", []):
+                        text = getattr(part, "content", None) or str(part)
+                        if text:
+                            messages.append({"role": "assistant", "content": text})
+                elif isinstance(ev, ToolCallsEvent):
+                    for call in ev.calls:
+                        messages.append({
+                            "role": "tool_call",
+                            "content": f"{call.name}({call.arguments})",
+                        })
+                elif isinstance(ev, ToolResultsEvent):
+                    for r in ev.results:
+                        result = getattr(r, "result", None)
+                        text = ""
+                        if result:
+                            for part in getattr(result, "parts", []):
+                                text += getattr(part, "content", str(part))
+                        messages.append({
+                            "role": "tool_result",
+                            "content": text[:3000] if text else "(empty)",
+                        })
+            if messages:
+                convos[pname] = messages
+        return convos
+
+    def save_conversations(self, path: str) -> None:
+        """Save conversations as readable markdown."""
+        convos = self.export_conversations()
+        lines = [f"# Research Conversations\n\n"]
+        for pname, messages in convos.items():
+            lines.append(f"## {pname}\n\n")
+            for msg in messages:
+                role = msg["role"]
+                content = msg["content"]
+                if role == "user":
+                    lines.append(f"**User:**\n{content}\n\n")
+                elif role == "assistant":
+                    lines.append(f"**Assistant:**\n{content}\n\n")
+                elif role == "tool_call":
+                    lines.append(f"**Tool call:** `{content}`\n\n")
+                elif role == "tool_result":
+                    lines.append(f"**Tool result:**\n```\n{content}\n```\n\n")
+            lines.append("---\n\n")
+
+        with open(path, "w") as f:
+            f.writelines(lines)
+
 
 async def research(
     topic: str,

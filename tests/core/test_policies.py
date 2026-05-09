@@ -51,11 +51,9 @@ class TestEnsureToolPairing:
         result = ensure_tool_pairing(events)
         assert len(result) == 3
         assert not any(
-            isinstance(e, ToolResultsEvent)
-            and any(r.parent_id == "missing" for r in e.results)
+            isinstance(e, ToolResultsEvent) and any(r.parent_id == "missing" for r in e.results)
             for e in result
         )
-
 
     def test_mixed_valid_and_orphan_results(self):
         valid = ToolResultEvent(parent_id="c1", name="fn", result=ToolResult("ok"))
