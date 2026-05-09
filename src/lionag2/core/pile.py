@@ -13,7 +13,7 @@ Polymorphic __getitem__:
 from __future__ import annotations
 
 import types as _types
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Any, TypeVar, get_args
 from uuid import UUID
 

@@ -56,8 +56,12 @@ class FlowStorage:
 
 class Flow:
     __slots__ = (
-        "_items", "_progressions", "_conditions",
-        "_streams", "_lock", "name",
+        "_items",
+        "_progressions",
+        "_conditions",
+        "_streams",
+        "_lock",
+        "name",
     )
 
     def __init__(self, name: str | None = None) -> None:
@@ -186,8 +190,7 @@ class Flow:
             "name": self.name,
             "items": [serialize_value(ev) for ev in self._items],
             "progressions": {
-                name: [str(uid) for uid in prog]
-                for name, prog in self._progressions.items()
+                name: [str(uid) for uid in prog] for name, prog in self._progressions.items()
             },
         }
 
