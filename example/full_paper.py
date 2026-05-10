@@ -2,10 +2,14 @@
 
 import asyncio
 import json
+import logging
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.getLogger("autogen.oai.client").setLevel(logging.ERROR)
+logging.getLogger("autogen").setLevel(logging.ERROR)
 
 
 async def main():
@@ -30,6 +34,11 @@ async def main():
     with open("output_flow.json", "w") as f:
         json.dump(flow_data, f, default=str)
     print(f"Flow:  output_flow.json ({len(json.dumps(flow_data, default=str))} bytes)")
+
+    engine.save_conversations("output_conversations.md")
+    convos = engine.export_conversations()
+    total_msgs = sum(len(v) for v in convos.values())
+    print(f"Convos: output_conversations.md ({len(convos)} agents, {total_msgs} messages)")
     print("\nReplay: python example/replay.py output_flow.json")
     print("Stats:  python example/replay.py output_flow.json --stats")
 

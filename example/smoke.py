@@ -9,20 +9,22 @@ load_dotenv()
 
 async def main():
     from lionag2 import ResearchEngine
-    from lionag2.research.events import AgentTurnError, FindingEmitted, NodeRegistered
+    from lionag2.research.events import FindingEmitted, NodeRegistered
 
     def on_event(e):
         t = e.get("type", "?")
-        if t == "AgentTurnStarted":
+        if t == "agent_start":
             return
-        if t == "AgentTurnDone":
+        if t == "agent_done":
             print(f"  <- {e.get('agent')} ({e.get('chars', 0):,} chars)")
-        elif t == "AgentTurnError":
+        elif t == "agent_error":
             print(f"  !! {e.get('agent')} ERR: {str(e.get('error', ''))[:60]}")
         elif t == "FindingEmitted":
             print(f"  ** novelty={e.get('novelty')} {str(e.get('claim', ''))[:60]}")
         elif t == "ExplorationComplete":
-            print(f"  == nodes={e.get('total_nodes')} findings={e.get('total_findings')} q={e.get('paper_quality')}")
+            print(
+                f"  == nodes={e.get('total_nodes')} findings={e.get('total_findings')} q={e.get('paper_quality')}"
+            )
         else:
             print(f"  [{t}]")
 
@@ -35,9 +37,7 @@ async def main():
     )
 
     print("--- Starting research (depth=1) ---\n")
-    paper = await engine.run(
-        "What are the failure modes of chain-of-thought prompting?"
-    )
+    paper = await engine.run("What are the failure modes of chain-of-thought prompting?")
 
     print("\n--- Results ---")
     print(f"Quality: {paper.quality_score:.2f}")
@@ -46,10 +46,8 @@ async def main():
 
     nodes = engine.flow.items.by_type(NodeRegistered)
     findings = engine.flow.items.by_type(FindingEmitted)
-    errors = engine.flow.items.by_type(AgentTurnError)
     print(f"Nodes:   {len(nodes)}")
     print(f"Findings:{len(findings)}")
-    print(f"Errors:  {len(errors)}")
     print(f"URLs:    {len(engine.urls)}")
 
     print(f"\n{paper.as_markdown()[:500]}...")

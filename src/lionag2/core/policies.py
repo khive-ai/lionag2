@@ -3,26 +3,37 @@
 AG2's SlidingWindowPolicy only strips leading orphan ToolResultsEvents.
 This module provides SafeSlidingWindowPolicy which ensures pairing across
 the entire assembled context — no orphaned tool results at any position.
+
+Key insight: convert_messages serializes ModelResponse.to_api() to produce
+assistant messages with tool_calls. It IGNORES standalone ToolCallsEvent.
+So we must collect call_ids from ModelResponse.tool_calls, not from
+standalone ToolCallsEvent — otherwise the sliding window can truncate the
+ModelResponse while keeping the ToolCallsEvent, and ensure_tool_pairing
+would incorrectly keep tool results that have no serialized assistant
+message.
 """
 
 from autogen.beta.context import ConversationContext as Context
-from autogen.beta.events import BaseEvent, ToolResultsEvent
-from autogen.beta.events.tool_events import ToolCallsEvent
+from autogen.beta.events import BaseEvent, ModelResponse, ToolResultsEvent
 
 
 def ensure_tool_pairing(events: list[BaseEvent]) -> list[BaseEvent]:
-    """Drop orphaned tool results whose ToolCallsEvent is missing.
+    """Drop orphaned tool results whose ModelResponse is missing.
 
-    Filters at the individual result level — a ToolResultsEvent with
-    mixed valid/orphan results keeps only the valid ones.
+    Collects call_ids from ModelResponse.tool_calls (what convert_messages
+    actually serializes), not from standalone ToolCallsEvent (which
+    convert_messages ignores). This prevents the sliding window from
+    keeping tool results after their ModelResponse was truncated.
     """
     call_ids: set[str] = set()
     for e in events:
-        if isinstance(e, ToolCallsEvent):
-            for c in e.calls:
-                cid = getattr(c, "id", None)
-                if cid:
-                    call_ids.add(cid)
+        if isinstance(e, ModelResponse):
+            tc = getattr(e, "tool_calls", None)
+            if tc:
+                for c in getattr(tc, "calls", []):
+                    cid = getattr(c, "id", None)
+                    if cid:
+                        call_ids.add(cid)
 
     out: list[BaseEvent] = []
     for e in events:
@@ -58,7 +69,7 @@ class SafeSlidingWindowPolicy:
     ) -> tuple[list[str], list[BaseEvent]]:
         total = len(events)
         if total <= self._max:
-            return prompts, events
+            return prompts, ensure_tool_pairing(events)
         trimmed = ensure_tool_pairing(events[-self._max :])
         if self._transparent:
             prompts = prompts + [f"[{self.name}] Showing last {len(trimmed)} of {total} events."]

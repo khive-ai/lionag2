@@ -20,7 +20,7 @@ from autogen.beta.ag_ui import AGUIStream
 from autogen.beta.compact import CompactTrigger, TailWindowCompact
 from autogen.beta.config import OpenAIConfig
 from autogen.beta.knowledge import MemoryKnowledgeStore
-from autogen.beta.policies import ConversationPolicy, SlidingWindowPolicy
+from autogen.beta.policies import ConversationPolicy
 from autogen.beta.tools import ExaToolkit, SandboxCodeTool
 from autogen.beta.tools.subagents import persistent_stream
 from starlette.applications import Starlette
@@ -30,9 +30,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from ..core import SafeSlidingWindowPolicy
 from ..tools import KhiveKnowledgeStore, KhiveToolkit, khive_available
 from .models import ExplorationResult
-from .prompts import ALL_SPECIALISTS, CONNECTOR
+from .prompts import CONNECTOR, build_roster
 from .tools import EMISSION_TOOLS
 
 
@@ -101,7 +102,8 @@ def _build_coordinator(
         return tools
 
     # Build specialist agents
-    roster = list(ALL_SPECIALISTS)
+    has_exa = exa is not None
+    roster = build_roster(bool(has_khive), has_exa)
     if extra_specialists:
         roster.extend(extra_specialists)
     if has_khive:
@@ -123,7 +125,7 @@ def _build_coordinator(
             knowledge=knowledge,
             assembly=[
                 ConversationPolicy(),
-                SlidingWindowPolicy(max_events=40, transparent=True),
+                SafeSlidingWindowPolicy(max_events=40, transparent=True),
             ],
         )
         specialist_tools.append(
@@ -147,7 +149,7 @@ def _build_coordinator(
         knowledge=knowledge,
         assembly=[
             ConversationPolicy(),
-            SlidingWindowPolicy(max_events=60, transparent=True),
+            SafeSlidingWindowPolicy(max_events=60, transparent=True),
         ],
         response_schema=PromptedSchema(ExplorationResult),
     )

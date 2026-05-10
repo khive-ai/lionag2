@@ -1,5 +1,5 @@
 import pytest
-from autogen.beta.events import BaseEvent
+from autogen.beta.events import BaseEvent, ModelResponse
 from autogen.beta.events.tool_events import (
     ToolCallEvent,
     ToolCallsEvent,
@@ -11,8 +11,11 @@ from autogen.beta.events.tool_events import (
 from lionag2.core.policies import SafeSlidingWindowPolicy, ensure_tool_pairing
 
 
-def _make_call(call_id: str) -> ToolCallsEvent:
-    return ToolCallsEvent(calls=[ToolCallEvent(id=call_id, name="fn", arguments="{}")])
+def _make_call(call_id: str) -> ModelResponse:
+    """Create a ModelResponse with tool_calls — what convert_messages serializes."""
+    return ModelResponse(
+        tool_calls=ToolCallsEvent(calls=[ToolCallEvent(id=call_id, name="fn", arguments="{}")]),
+    )
 
 
 def _make_result(parent_id: str) -> ToolResultsEvent:
@@ -71,6 +74,23 @@ class TestEnsureToolPairing:
         events = [_make_result("orphan")]
         result = ensure_tool_pairing(events)
         assert len(result) == 0
+
+    def test_standalone_tool_calls_event_not_sufficient(self):
+        """Standalone ToolCallsEvent (without ModelResponse) should NOT
+        satisfy pairing — convert_messages ignores it."""
+        standalone = ToolCallsEvent(calls=[ToolCallEvent(id="c1", name="fn", arguments="{}")])
+        events = [standalone, _make_result("c1")]
+        result = ensure_tool_pairing(events)
+        # ToolResultsEvent should be dropped — no ModelResponse has c1
+        assert len(result) == 1
+        assert isinstance(result[0], ToolCallsEvent)
+
+    def test_model_response_provides_call_ids(self):
+        """ModelResponse.tool_calls is what convert_messages serializes."""
+        events = [_make_call("c1"), _make_result("c1")]
+        result = ensure_tool_pairing(events)
+        assert len(result) == 2
+        assert isinstance(result[1], ToolResultsEvent)
 
 
 class TestSafeSlidingWindowPolicy:

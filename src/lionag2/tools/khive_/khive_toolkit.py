@@ -26,7 +26,7 @@ def khive_available() -> bool:
 class KhiveToolkit(Toolkit):
     """AG2 Toolkit providing khive memory, graph, and communication tools."""
 
-    __slots__ = ("_client",)
+    __slots__ = ("_api_key", "_base_url", "_namespace")
 
     def __init__(
         self,
@@ -36,13 +36,9 @@ class KhiveToolkit(Toolkit):
         namespace: str = "default",
         services: tuple[str, ...] = ("memory", "graph", "communication"),
     ) -> None:
-        from khive import AsyncKhive
-
-        self._client = AsyncKhive(
-            api_key=api_key,
-            base_url=base_url,
-            namespace=namespace,
-        )
+        self._api_key = api_key
+        self._base_url = base_url
+        self._namespace = namespace
 
         tools = []
         svc = set(services)
@@ -62,10 +58,19 @@ class KhiveToolkit(Toolkit):
 
         super().__init__(*tools, name="khive")
 
+    def _make_client(self):
+        from khive import AsyncKhive
+
+        return AsyncKhive(
+            api_key=self._api_key,
+            base_url=self._base_url,
+            namespace=self._namespace,
+        )
+
     # -- Memory ---------------------------------------------------------------
 
     def memory_recall(self):
-        client = self._client
+        make_client = self._make_client
 
         @tool(
             name="memory_recall",
@@ -78,6 +83,7 @@ class KhiveToolkit(Toolkit):
             query: Annotated[str, Field(description="Natural language search query.")],
             limit: Annotated[int, Field(description="Max results.", ge=1, le=20)] = 5,
         ) -> ToolResult:
+            client = make_client()
             result = await client.memory.recall(query=query, limit=limit)
             items = result.items if hasattr(result, "items") else result
             return ToolResult(str(items))
@@ -85,7 +91,7 @@ class KhiveToolkit(Toolkit):
         return _recall
 
     def memory_remember(self):
-        client = self._client
+        make_client = self._make_client
 
         @tool(
             name="memory_remember",
@@ -98,6 +104,7 @@ class KhiveToolkit(Toolkit):
             content: Annotated[str, Field(description="What to remember.")],
             importance: Annotated[float, Field(ge=0, le=1)] = 0.7,
         ) -> ToolResult:
+            client = make_client()
             await client.memory.remember(content=content, importance=importance)
             return ToolResult(f"Remembered: {content}")
 
@@ -106,7 +113,7 @@ class KhiveToolkit(Toolkit):
     # -- Graph ----------------------------------------------------------------
 
     def graph_search(self):
-        client = self._client
+        make_client = self._make_client
 
         @tool(
             name="graph_search",
@@ -115,13 +122,14 @@ class KhiveToolkit(Toolkit):
         async def _search(
             query: Annotated[str, Field(description="Search terms.")],
         ) -> ToolResult:
+            client = make_client()
             result = await client.graph.search(query=query)
             return ToolResult(str(result if isinstance(result, list) else [result]))
 
         return _search
 
     def graph_create(self):
-        client = self._client
+        make_client = self._make_client
 
         @tool(name="graph_add_entity", description="Create an entity in the knowledge graph.")
         async def _create(
@@ -130,13 +138,14 @@ class KhiveToolkit(Toolkit):
             ],
             name: Annotated[str, Field(description="Display name.")],
         ) -> ToolResult:
+            client = make_client()
             result = await client.graph.create(type=entity_type, name=name)
             return ToolResult(str(result))
 
         return _create
 
     def graph_link(self):
-        client = self._client
+        make_client = self._make_client
 
         @tool(name="graph_add_link", description="Link two entities in the knowledge graph.")
         async def _link(
@@ -144,18 +153,20 @@ class KhiveToolkit(Toolkit):
             target: Annotated[str, Field(description="Target entity.")],
             relation: Annotated[str, Field(description="Relation: cites, contradicts, extends.")],
         ) -> ToolResult:
+            client = make_client()
             result = await client.graph.link(source=source, target=target, relation=relation)
             return ToolResult(str(result))
 
         return _link
 
     def graph_neighbors(self):
-        client = self._client
+        make_client = self._make_client
 
         @tool(name="graph_neighbors", description="Get entities connected to a given entity.")
         async def _neighbors(
             entity_id: Annotated[str, Field(description="Entity ID.")],
         ) -> ToolResult:
+            client = make_client()
             result = await client.graph.neighbors(id=entity_id)
             return ToolResult(str(result if isinstance(result, list) else [result]))
 
@@ -164,7 +175,7 @@ class KhiveToolkit(Toolkit):
     # -- Communication --------------------------------------------------------
 
     def send_message(self):
-        client = self._client
+        make_client = self._make_client
 
         @tool(name="send_message", description="Send a message to another agent or team.")
         async def _send(
@@ -172,18 +183,20 @@ class KhiveToolkit(Toolkit):
             to: Annotated[str, Field(description="Recipient team or agent.")],
             subject: Annotated[str, Field(description="Subject line.")] = "",
         ) -> ToolResult:
+            client = make_client()
             await client.communication.send(content=content, to=to)
             return ToolResult(f"Sent to {to}")
 
         return _send
 
     def list_messages(self):
-        client = self._client
+        make_client = self._make_client
 
         @tool(name="list_messages", description="Check inbox for messages from other teams.")
         async def _list(
             limit: Annotated[int, Field(ge=1, le=50)] = 5,
         ) -> ToolResult:
+            client = make_client()
             result = await client.communication.list(limit=limit)
             return ToolResult(str(result if isinstance(result, list) else [result]))
 

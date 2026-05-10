@@ -17,9 +17,8 @@ from pydantic import BaseModel
 from .utils import FuzzyUtils
 
 if TYPE_CHECKING:
-    from fast_depends import Provider
-
     from autogen.beta.annotations import Context
+    from fast_depends import Provider
 
 from typing import TypeVar
 
