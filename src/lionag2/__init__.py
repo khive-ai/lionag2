@@ -8,7 +8,7 @@ __version__ = "0.3.0"
 
 from .core import Flow, Pile, Progression
 from .research import ResearchEngine, research
-from .research.models import ExplorationResult, PaperDraft, QualityMetrics
+from .research.models import ExplorationResult, PaperDraft
 
 __all__ = [
     "Flow",
@@ -17,7 +17,6 @@ __all__ = [
     "ResearchEngine",
     "ExplorationResult",
     "PaperDraft",
-    "QualityMetrics",
     "research",
     "__version__",
 ]

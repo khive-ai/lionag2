@@ -15,8 +15,6 @@ and cannot be serialized. Progression membership IS preserved, but
 auto-routing resumes only after new_stream() is called again.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 from typing import Any
 from uuid import UUID, uuid4
@@ -38,7 +36,7 @@ class FlowStorage:
 
     __slots__ = ("_flow", "_name")
 
-    def __init__(self, flow: Flow, name: str) -> None:
+    def __init__(self, flow: "Flow", name: str) -> None:
         self._flow = flow
         self._name = name
 
@@ -46,10 +44,7 @@ class FlowStorage:
         self._flow.include(event, progressions=[self._name])
 
     async def get_history(self, stream_id: Any) -> Iterable[Any]:
-        from .policies import ensure_tool_pairing
-
-        events = self._flow.progression_items(self._name)
-        return ensure_tool_pairing(events)
+        return self._flow.progression_items(self._name)
 
     async def set_history(self, stream_id: Any, events: Iterable[Any]) -> None:
         self._flow.replace_progression(self._name, list(events))
@@ -81,7 +76,7 @@ class Flow:
         return self._items
 
     @property
-    def streams(self) -> _Streams:
+    def streams(self) -> "_Streams":
         return _Streams(self)
 
     # -- Stream creation -------------------------------------------------------
@@ -125,6 +120,11 @@ class Flow:
             return stream
 
     # -- Progression management -----------------------------------------------
+
+    @property
+    def progression_names(self) -> list[str]:
+        with self._lock:
+            return sorted(self._progressions.keys())
 
     def _ensure_progression(self, name: str) -> Progression:
         if name not in self._progressions:
@@ -211,7 +211,7 @@ class Flow:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Flow:
+    def from_dict(cls, data: dict[str, Any]) -> "Flow":
         flow = cls(name=data.get("name"))
         events = [deserialize_value(d) for d in data.get("items", [])]
         if events:
@@ -231,7 +231,7 @@ class _Streams:
 
     __slots__ = ("_flow",)
 
-    def __init__(self, flow: Flow) -> None:
+    def __init__(self, flow: "Flow") -> None:
         self._flow = flow
 
     def __getitem__(self, name: str) -> MemoryStream:

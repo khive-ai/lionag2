@@ -15,14 +15,10 @@ Usage:
 
 import argparse
 import json
-import sys
 from datetime import datetime
 
 from lionag2.core import Flow
 from lionag2.research.events import (
-    AgentTurnDone,
-    AgentTurnError,
-    AgentTurnStarted,
     CrossCheckDone,
     DepthRequested,
     ExplorationComplete,
@@ -38,9 +34,6 @@ from lionag2.research.events import (
 ICONS = {
     "NodeRegistered": "🌱",
     "TeamStarted": "👥",
-    "AgentTurnStarted": "  →",
-    "AgentTurnDone": "  ←",
-    "AgentTurnError": "  ✗",
     "FindingEmitted": "💡",
     "DepthRequested": "  ↓",
     "TopicSeen": "  ✓",
@@ -66,16 +59,10 @@ def render(event, t0: float) -> str:
         return f"{icon} {ts} {elapsed:>8}  node={event.node_id} depth={event.depth} topic={event.topic!r}"
     if isinstance(event, TeamStarted):
         return f"{icon} {ts} {elapsed:>8}  node={event.node_id} agents=[{', '.join(event.agents)}]"
-    if isinstance(event, AgentTurnStarted):
-        return f"{icon} {ts} {elapsed:>8}  {event.agent} starting"
-    if isinstance(event, AgentTurnDone):
-        return f"{icon} {ts} {elapsed:>8}  {event.agent} done ({event.chars:,} chars)"
-    if isinstance(event, AgentTurnError):
-        return f"{icon} {ts} {elapsed:>8}  {event.agent} ERROR: {event.error}"
     if isinstance(event, FindingEmitted):
         return f"{icon} {ts} {elapsed:>8}  [{event.source_agent} d={event.depth}] novelty={event.novelty:.2f} — {event.claim}"
     if isinstance(event, DepthRequested):
-        return f"{icon} {ts} {elapsed:>8}  depth={event.parent_depth+1} — {event.question}"
+        return f"{icon} {ts} {elapsed:>8}  depth={event.parent_depth + 1} — {event.question}"
     if isinstance(event, TopicSeen):
         return f"{icon} {ts} {elapsed:>8}  dedup: {event.normalized}"
     if isinstance(event, UrlCaptured):
@@ -108,7 +95,7 @@ def main():
     if args.stats:
         print(f"Flow: {flow.name}")
         print(f"Total events: {len(flow.items)}")
-        print(f"Type breakdown:")
+        print("Type breakdown:")
         for tname, count in flow.items.type_counts.items():
             print(f"  {tname.rsplit('.', 1)[-1]}: {count}")
         print(f"Progressions: {flow.progression_names}")
@@ -134,7 +121,9 @@ def main():
         events = [e for e in events if type(e).__name__ == args.type]
 
     if args.min_novelty is not None:
-        events = [e for e in events if isinstance(e, FindingEmitted) and e.novelty >= args.min_novelty]
+        events = [
+            e for e in events if isinstance(e, FindingEmitted) and e.novelty >= args.min_novelty
+        ]
 
     if not events:
         print("No events match filters.")

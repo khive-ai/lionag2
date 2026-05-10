@@ -10,8 +10,6 @@ Polymorphic __getitem__:
     pile[ag2_condition]     → AG2 Condition filter
 """
 
-from __future__ import annotations
-
 import types as _types
 from collections.abc import Iterator
 from typing import Any, TypeVar, get_args

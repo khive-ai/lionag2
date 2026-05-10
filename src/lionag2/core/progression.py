@@ -1,7 +1,5 @@
 """Ordered sequence of UUIDs with O(1) membership."""
 
-from __future__ import annotations
-
 from collections import deque
 from collections.abc import Iterator
 from typing import overload

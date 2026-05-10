@@ -239,15 +239,6 @@ PAPER_WRITER = (
 )
 
 # ---------------------------------------------------------------------------
-# Quality evaluator
-# ---------------------------------------------------------------------------
-
-QUALITY_EVALUATOR = (
-    "You are a research quality evaluator. Assess the paper on concrete metrics. "
-    "Be honest — don't inflate scores. 0.5 = average, 0.7 = good, 0.9 = excellent."
-)
-
-# ---------------------------------------------------------------------------
 # Depth-aware instruction builder
 # ---------------------------------------------------------------------------
 

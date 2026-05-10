@@ -233,6 +233,8 @@ agent = Agent("x", ..., assembly=[
 
 ## Server
 
+AG2 has native [ag-ui support](https://docs.ag2.ai/latest/docs/beta/ag-ui/) — lionag2's server builds on `AGUIStream` directly.
+
 ```bash
 # ag-ui protocol (CopilotKit/Vercel AI SDK compatible)
 lionag2-server --port 8000

@@ -4,10 +4,11 @@ import asyncio
 import logging
 import os
 import uuid
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 
-from autogen.beta import Agent, KnowledgeConfig, PromptedSchema
+from autogen.beta import Agent, KnowledgeConfig
 from autogen.beta.compact import CompactTrigger, TailWindowCompact
 from autogen.beta.config import OpenAIConfig
 from autogen.beta.events import BaseEvent, ToolResultsEvent
@@ -15,7 +16,7 @@ from autogen.beta.knowledge import MemoryKnowledgeStore
 from autogen.beta.policies import ConversationPolicy
 from autogen.beta.tools import ExaToolkit, SandboxCodeTool
 
-from ..core import Flow, SafeSlidingWindowPolicy
+from ..core import Flow, FuzzySchema, SafeSlidingWindowPolicy
 from ..tools import KhiveToolkit, khive_available
 from .events import (
     ContradictionFound,
@@ -39,6 +40,16 @@ from .tools import EMISSION_TOOLS, PAPER_TOOLS
 
 logger = logging.getLogger("lionag2.engine")
 SSECallback = Callable[[dict[str, Any]], Any]
+
+
+def _paper_from_raw(raw: str) -> PaperDraft:
+    """Last resort: wrap raw text as paper body when FuzzySchema also fails."""
+    return PaperDraft(
+        title="Research Paper",
+        abstract="(structured output parsing failed)",
+        body_markdown=raw,
+        quality_score=0.3,
+    )
 
 
 class ResearchEngine:
@@ -78,6 +89,7 @@ class ResearchEngine:
 
         self.max_depth = max_depth
         self.max_concurrent = max_concurrent
+        self._semaphore = asyncio.Semaphore(max_concurrent)
         self.novelty_threshold = novelty_threshold
         self.paper_max_iterations = paper_max_iterations
         self.paper_quality_threshold = paper_quality_threshold
@@ -114,7 +126,7 @@ class ResearchEngine:
 
         self.flow = Flow(name="research")
         self._active_tasks: set[asyncio.Task] = set()
-        self._pending_coros: list[Any] = []
+        self._pending_coros: deque[Any] = deque()
 
     # -- Helpers --------------------------------------------------------------
 
@@ -242,29 +254,30 @@ class ResearchEngine:
     async def _spawn_depth_node(self, topic: str, depth: int, parent_node_id: str = "") -> None:
         if depth > self.max_depth:
             return
-        normalized = topic.lower()[:40]
+        normalized = topic.strip().lower()
         if self._topic_seen(normalized):
             return
 
-        self._record(TopicSeen(normalized=normalized))
-        child_id = uuid.uuid4().hex[:12]
-        team_name = f"team_d{depth}_{uuid.uuid4().hex[:6]}"
-        self._record(
-            NodeRegistered(
-                node_id=child_id,
-                topic=topic,
-                depth=depth,
-                parent_node_id=parent_node_id,
-                stream_name=team_name,
+        async with self._semaphore:
+            self._record(TopicSeen(normalized=normalized))
+            child_id = uuid.uuid4().hex[:12]
+            team_name = f"team_d{depth}_{uuid.uuid4().hex[:6]}"
+            self._record(
+                NodeRegistered(
+                    node_id=child_id,
+                    topic=topic,
+                    depth=depth,
+                    parent_node_id=parent_node_id,
+                    stream_name=team_name,
+                )
             )
-        )
-        await self._run_team(
-            build_node_instruction(topic, depth, self.max_depth),
-            team_name=team_name,
-            depth=depth,
-            node_id=child_id,
-            parent_node_id=parent_node_id,
-        )
+            await self._run_team(
+                build_node_instruction(topic, depth, self.max_depth),
+                team_name=team_name,
+                depth=depth,
+                node_id=child_id,
+                parent_node_id=parent_node_id,
+            )
 
     # -- Team runner ----------------------------------------------------------
 
@@ -326,6 +339,20 @@ class ResearchEngine:
                     "agent_done", node_id=node_id, agent=spec["name"], chars=len(last_reply)
                 )
             except Exception as exc:
+                if "role 'tool'" in str(exc):
+                    stream_key = f"{team_name}_{spec['name']}_{turn_num}"
+                    hist = (
+                        self.flow.progression_items(stream_key)
+                        if stream_key in self.flow._progressions
+                        else []
+                    )
+                    logger.error(
+                        "Orphaned tool result in %s (turn %d, %d events): %s",
+                        spec["name"],
+                        turn_num,
+                        len(hist),
+                        [type(e).__name__ for e in hist],
+                    )
                 logger.error("Agent %s failed: %s", spec["name"], exc)
                 self._notify("agent_error", node_id=node_id, agent=spec["name"], error=str(exc))
                 last_reply = f"[{spec['name']} failed: {exc}]"
@@ -352,14 +379,17 @@ class ResearchEngine:
             "cross_checker",
             prompt=CROSS_CHECK,
             config=self.config,
-            response_schema=PromptedSchema(CrossCheckReport),
+            response_schema=FuzzySchema(CrossCheckReport),
         )
         ctx_text = "\n".join(f"- [{f.source_agent} d={f.depth}] {f.claim}" for f in all_findings)
         reply = await checker.ask(
             f"Cross-check {len(all_findings)} findings:\n{ctx_text}",
             stream=self.flow.streams["cross_check"],
         )
-        report = await reply.content(retries=1) or CrossCheckReport(summary=reply.body or "")
+        try:
+            report = await reply.content(retries=2) or CrossCheckReport(summary=reply.body or "")
+        except Exception:
+            report = CrossCheckReport(summary=reply.body or "")
         self._record(
             CrossCheckDone(contradictions=len(report.contradictions), gaps=len(report.gaps))
         )
@@ -427,7 +457,7 @@ class ResearchEngine:
                 prompt=PAPER_WRITER,
                 config=self.config,
                 tools=PAPER_TOOLS,
-                response_schema=PromptedSchema(PaperDraft),
+                response_schema=FuzzySchema(PaperDraft),
             )
 
             @writer.observer(PaperGapEvent)
@@ -443,12 +473,15 @@ class ResearchEngine:
 
             reply = await writer.ask(payload, stream=self.flow.streams[f"paper_{iteration}"])
             self._drain_pending()
-            paper = await reply.content(retries=1) or PaperDraft(
-                title="Research",
-                abstract="Generation failed.",
-                body_markdown=reply.body or "",
-                quality_score=0.0,
-            )
+            try:
+                paper = await reply.content(retries=2) or PaperDraft(
+                    title="Research",
+                    abstract="Generation failed.",
+                    body_markdown=reply.body or "",
+                    quality_score=0.0,
+                )
+            except Exception:
+                paper = _paper_from_raw(reply.body or "")
             self._record(
                 PaperDrafted(iteration=iteration, quality=paper.quality_score, gaps=len(paper.gaps))
             )
@@ -476,7 +509,7 @@ class ResearchEngine:
 
         root_id = uuid.uuid4().hex[:12]
         root_team = f"team_d0_{uuid.uuid4().hex[:6]}"
-        self._record(TopicSeen(normalized=topic.lower()[:40]))
+        self._record(TopicSeen(normalized=topic.strip().lower()))
         self._record(
             NodeRegistered(
                 node_id=root_id,
@@ -523,11 +556,11 @@ class ResearchEngine:
             return None
 
     def _drain_pending(self) -> None:
-        for coro in self._pending_coros:
+        while self._pending_coros:
+            coro = self._pending_coros.popleft()
             task = asyncio.create_task(coro)
             self._active_tasks.add(task)
             task.add_done_callback(self._active_tasks.discard)
-        self._pending_coros.clear()
 
     @property
     def urls(self) -> dict[str, str]:
@@ -538,13 +571,15 @@ class ResearchEngine:
 
         Returns dict: progression_name → list of {role, content} messages.
         """
-        from autogen.beta.events import BaseEvent
         from autogen.beta.events.tool_events import ToolCallsEvent, ToolResultsEvent
 
         convos: dict[str, list[dict[str, str]]] = {}
-        for pname in sorted(self.flow._progressions.keys()):
-            if not pname.startswith("team_") and pname not in ("cross_check",) \
-               and not pname.startswith("paper_"):
+        for pname in self.flow.progression_names:
+            if (
+                not pname.startswith("team_")
+                and pname not in ("cross_check",)
+                and not pname.startswith("paper_")
+            ):
                 continue
             messages: list[dict[str, str]] = []
             for ev in self.flow[pname]:
@@ -553,7 +588,7 @@ class ResearchEngine:
                     for part in getattr(ev, "parts", []):
                         text = getattr(part, "content", None) or str(part)
                         if text:
-                            messages.append({"role": "user", "content": text[:5000]})
+                            messages.append({"role": "user", "content": text})
                 elif ev_type == "ModelResponse":
                     for part in getattr(ev, "parts", []):
                         text = getattr(part, "content", None) or str(part)
@@ -561,10 +596,12 @@ class ResearchEngine:
                             messages.append({"role": "assistant", "content": text})
                 elif isinstance(ev, ToolCallsEvent):
                     for call in ev.calls:
-                        messages.append({
-                            "role": "tool_call",
-                            "content": f"{call.name}({call.arguments})",
-                        })
+                        messages.append(
+                            {
+                                "role": "tool_call",
+                                "content": f"{call.name}({call.arguments})",
+                            }
+                        )
                 elif isinstance(ev, ToolResultsEvent):
                     for r in ev.results:
                         result = getattr(r, "result", None)
@@ -572,10 +609,12 @@ class ResearchEngine:
                         if result:
                             for part in getattr(result, "parts", []):
                                 text += getattr(part, "content", str(part))
-                        messages.append({
-                            "role": "tool_result",
-                            "content": text[:3000] if text else "(empty)",
-                        })
+                        messages.append(
+                            {
+                                "role": "tool_result",
+                                "content": text or "(empty)",
+                            }
+                        )
             if messages:
                 convos[pname] = messages
         return convos
@@ -583,7 +622,7 @@ class ResearchEngine:
     def save_conversations(self, path: str) -> None:
         """Save conversations as readable markdown."""
         convos = self.export_conversations()
-        lines = [f"# Research Conversations\n\n"]
+        lines = ["# Research Conversations\n\n"]
         for pname, messages in convos.items():
             lines.append(f"## {pname}\n\n")
             for msg in messages:

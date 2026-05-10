@@ -5,8 +5,6 @@ Specialists produce them; the knowledge store accumulates them; the paper
 writer consumes them. Gaps in coverage loop back as new research nodes.
 """
 
-import uuid
-from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -149,47 +147,3 @@ class CrossCheckReport(BaseModel):
     gaps: list[PaperGap] = Field(default_factory=list)
     redundancies: list[str] = Field(default_factory=list)
     summary: str = ""
-
-
-class QualityMetrics(BaseModel):
-    citation_count: int
-    novelty_score: float = Field(ge=0, le=1)
-    evidence_quality: float = Field(ge=0, le=1)
-    contradiction_count: int = 0
-    correction_count: int = 0
-    coverage_score: float = Field(ge=0, le=1)
-    paper_completeness: float = Field(ge=0, le=1)
-    verdict: str
-
-
-# ---------------------------------------------------------------------------
-# Research tree
-# ---------------------------------------------------------------------------
-
-
-class NodeStatus(StrEnum):
-    PENDING = "pending"
-    ACTIVE = "active"
-    COMPLETE = "complete"
-    FAILED = "failed"
-    PRUNED = "pruned"
-
-
-class ExplorationNode(BaseModel):
-    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
-    topic: str
-    depth: int = 0
-    parent_id: str | None = None
-    status: NodeStatus = NodeStatus.PENDING
-    findings: list[Finding] = Field(default_factory=list)
-    open_questions: list[OpenQuestion] = Field(default_factory=list)
-    children: list[str] = Field(default_factory=list)
-    result: ExplorationResult | None = None
-
-
-class ExplorationTree(BaseModel):
-    root_id: str
-    nodes: dict[str, ExplorationNode] = Field(default_factory=dict)
-    max_depth: int = 3
-    max_concurrent: int = 4
-    topic: str = ""
