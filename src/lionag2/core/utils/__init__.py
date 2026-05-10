@@ -1,4 +1,5 @@
+from ._fuzzy import FuzzyUtils
 from ._id import IDUtils
 from ._sync import SyncUtils
 
-__all__ = ("IDUtils", "SyncUtils")
+__all__ = ("IDUtils", "SyncUtils", "FuzzyUtils")
