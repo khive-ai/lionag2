@@ -9,16 +9,18 @@ import json
 import re
 from typing import Any
 
+from pydantic import BaseModel
 from rapidfuzz.distance import JaroWinkler
+
 
 def _jaro_winkler(a: str, b: str) -> float:
     return JaroWinkler.similarity(a, b)
+
 
 _JSON_BLOCK_PATTERN = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
 
 
 class FuzzyUtils:
-    
     @staticmethod
     def fuzzy_parse_json(raw: str) -> dict | list:
         """Parse JSON with progressive fuzzy correction."""
@@ -31,8 +33,10 @@ class FuzzyUtils:
                 return result
 
         # Fix brackets on cleaned candidates
-        for candidate in (_clean_json_safe(_fix_backslash_escapes(raw)),
-                        _clean_json_regex(_fix_backslash_escapes(raw))):
+        for candidate in (
+            _clean_json_safe(_fix_backslash_escapes(raw)),
+            _clean_json_regex(_fix_backslash_escapes(raw)),
+        ):
             try:
                 return json.loads(_fix_brackets(candidate))
             except (json.JSONDecodeError, ValueError):
@@ -62,7 +66,6 @@ class FuzzyUtils:
                     pass
 
         raise ValueError("Could not parse JSON after all fuzzy attempts")
-
 
     @staticmethod
     def fuzzy_match_keys(
@@ -119,19 +122,17 @@ class FuzzyUtils:
         return out
 
     @staticmethod
-    def fuzzy_validate(raw: str, model_type: type, *, threshold: float = 0.82):
+    def fuzzy_validate(raw: str, model_type: type[BaseModel], *, threshold: float = 0.82):
         """Parse raw LLM text → fuzzy JSON → fuzzy key match → Pydantic model.
 
         Returns validated model instance or raises ValueError.
         """
         data = FuzzyUtils.fuzzy_parse_json(raw)
         if isinstance(data, dict):
-            data = FuzzyUtils.fuzzy_match_keys(data, set(model_type.model_fields), threshold=threshold)
+            data = FuzzyUtils.fuzzy_match_keys(
+                data, set(model_type.model_fields), threshold=threshold
+            )
         return model_type.model_validate(data)
-
-
-
-
 
 
 def _try_direct(raw: str):
@@ -161,8 +162,9 @@ def _try_clean_regex(raw: str):
     except json.JSONDecodeError:
         return None
 
+
 def _fix_backslash_escapes(s: str) -> str:
-    return re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
+    return re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", s)
 
 
 def _clean_json_safe(s: str) -> str:
