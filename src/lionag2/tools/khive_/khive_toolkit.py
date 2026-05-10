@@ -83,10 +83,10 @@ class KhiveToolkit(Toolkit):
             query: Annotated[str, Field(description="Natural language search query.")],
             limit: Annotated[int, Field(description="Max results.", ge=1, le=20)] = 5,
         ) -> ToolResult:
-            client = make_client()
-            result = await client.memory.recall(query=query, limit=limit)
-            items = result.items if hasattr(result, "items") else result
-            return ToolResult(str(items))
+            async with make_client() as client:
+                result = await client.memory.recall(query=query, limit=limit)
+                items = result.items if hasattr(result, "items") else result
+                return ToolResult(str(items))
 
         return _recall
 
@@ -104,9 +104,9 @@ class KhiveToolkit(Toolkit):
             content: Annotated[str, Field(description="What to remember.")],
             importance: Annotated[float, Field(ge=0, le=1)] = 0.7,
         ) -> ToolResult:
-            client = make_client()
-            await client.memory.remember(content=content, importance=importance)
-            return ToolResult(f"Remembered: {content}")
+            async with make_client() as client:
+                await client.memory.remember(content=content, importance=importance)
+                return ToolResult(f"Remembered: {content}")
 
         return _remember
 
@@ -122,9 +122,9 @@ class KhiveToolkit(Toolkit):
         async def _search(
             query: Annotated[str, Field(description="Search terms.")],
         ) -> ToolResult:
-            client = make_client()
-            result = await client.graph.search(query=query)
-            return ToolResult(str(result if isinstance(result, list) else [result]))
+            async with make_client() as client:
+                result = await client.graph.search(query=query)
+                return ToolResult(str(result if isinstance(result, list) else [result]))
 
         return _search
 
@@ -138,9 +138,9 @@ class KhiveToolkit(Toolkit):
             ],
             name: Annotated[str, Field(description="Display name.")],
         ) -> ToolResult:
-            client = make_client()
-            result = await client.graph.create(type=entity_type, name=name)
-            return ToolResult(str(result))
+            async with make_client() as client:
+                result = await client.graph.create(type=entity_type, name=name)
+                return ToolResult(str(result))
 
         return _create
 
@@ -153,9 +153,9 @@ class KhiveToolkit(Toolkit):
             target: Annotated[str, Field(description="Target entity.")],
             relation: Annotated[str, Field(description="Relation: cites, contradicts, extends.")],
         ) -> ToolResult:
-            client = make_client()
-            result = await client.graph.link(source=source, target=target, relation=relation)
-            return ToolResult(str(result))
+            async with make_client() as client:
+                result = await client.graph.link(source=source, target=target, relation=relation)
+                return ToolResult(str(result))
 
         return _link
 
@@ -166,9 +166,9 @@ class KhiveToolkit(Toolkit):
         async def _neighbors(
             entity_id: Annotated[str, Field(description="Entity ID.")],
         ) -> ToolResult:
-            client = make_client()
-            result = await client.graph.neighbors(id=entity_id)
-            return ToolResult(str(result if isinstance(result, list) else [result]))
+            async with make_client() as client:
+                result = await client.graph.neighbors(id=entity_id)
+                return ToolResult(str(result if isinstance(result, list) else [result]))
 
         return _neighbors
 
@@ -183,9 +183,9 @@ class KhiveToolkit(Toolkit):
             to: Annotated[str, Field(description="Recipient team or agent.")],
             subject: Annotated[str, Field(description="Subject line.")] = "",
         ) -> ToolResult:
-            client = make_client()
-            await client.communication.send(content=content, to=to)
-            return ToolResult(f"Sent to {to}")
+            async with make_client() as client:
+                await client.communication.send(content=content, to=to)
+                return ToolResult(f"Sent to {to}")
 
         return _send
 
@@ -196,8 +196,8 @@ class KhiveToolkit(Toolkit):
         async def _list(
             limit: Annotated[int, Field(ge=1, le=50)] = 5,
         ) -> ToolResult:
-            client = make_client()
-            result = await client.communication.list(limit=limit)
-            return ToolResult(str(result if isinstance(result, list) else [result]))
+            async with make_client() as client:
+                result = await client.communication.list(limit=limit)
+                return ToolResult(str(result if isinstance(result, list) else [result]))
 
         return _list
