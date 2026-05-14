@@ -1,16 +1,26 @@
-"""Typed events — all live in the Flow pile.
+"""Typed events — research domain.
 
 Two categories:
   Research events — emitted by specialists via ctx.send() tools.
   Engine events — emitted by the engine for coordination/observability.
 
-All are BaseEvent subclasses with auto-stamped UUIDs.
+Engine-level events (TopicSeen, NodeRegistered, TeamStarted,
+HandoffRequested, UrlCaptured) live in lionag2.engine and are
+re-exported here for backward compatibility.
 """
 
 from autogen.beta.events import BaseEvent, Field
 
+from ..engine import (
+    HandoffRequested,
+    NodeRegistered,
+    TeamStarted,
+    TopicSeen,
+    UrlCaptured,
+)
+
 # ---------------------------------------------------------------------------
-# Research events (specialist → bus via bridge)
+# Research events (specialist → engine via agent observers)
 # ---------------------------------------------------------------------------
 
 
@@ -52,43 +62,11 @@ class PaperGapEvent(BaseEvent):
 
 
 # ---------------------------------------------------------------------------
-# Engine coordination events (engine → pile for observability)
+# Engine coordination events (re-exported from lionag2.engine)
 # ---------------------------------------------------------------------------
 
-
-class NodeRegistered(BaseEvent):
-    """A research node was created."""
-
-    node_id: str
-    topic: str
-    depth: int = 0
-    parent_node_id: str = ""
-    stream_name: str = ""
-
-
-class TeamStarted(BaseEvent):
-    node_id: str
-    agents: list = Field(default_factory=list)
-    depth: int = 0
-
-
-class HandoffRequested(BaseEvent):
-    __transient__ = True
-    next_agent: str
-    reason: str = ""
-
-
-class UrlCaptured(BaseEvent):
-    __transient__ = True
-    title: str
-    url: str
-
-
-class TopicSeen(BaseEvent):
-    """Normalized topic registered for dedup."""
-
-    normalized: str
-    node_id: str = ""
+# NodeRegistered, TeamStarted, HandoffRequested, UrlCaptured, TopicSeen
+# imported above — available as research.events.X for backward compat
 
 
 class CrossCheckDone(BaseEvent):
@@ -107,3 +85,20 @@ class ExplorationComplete(BaseEvent):
     total_findings: int = 0
     max_depth: int = 0
     paper_quality: float = Field(default=0.0)
+
+
+__all__ = [
+    "ContradictionFound",
+    "CrossCheckDone",
+    "DepthRequested",
+    "ExplorationComplete",
+    "FindingEmitted",
+    "HandoffRequested",
+    "NodeRegistered",
+    "PaperDrafted",
+    "PaperGapEvent",
+    "PivotDetected",
+    "TeamStarted",
+    "TopicSeen",
+    "UrlCaptured",
+]

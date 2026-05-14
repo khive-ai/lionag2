@@ -1,22 +1,26 @@
-"""Reactive recursive research engine — Flow-native."""
+"""Research pipeline — domain logic on the generic Engine.
+
+ResearchEngine adds:
+  - Tool resolution (Exa, Daytona sandbox, khive)
+  - Research-specific agent observers (findings → depth, contradictions, pivots)
+  - Cross-check phase after exploration quiesces
+  - Iterative paper writing with gap-triggered depth expansion
+"""
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import os
 import uuid
-from collections import deque
-from collections.abc import Callable
 from typing import Any
 
-from autogen.beta import Agent, KnowledgeConfig
-from autogen.beta.compact import CompactTrigger, TailWindowCompact
-from autogen.beta.config import OpenAIConfig
-from autogen.beta.events import BaseEvent, ToolResultsEvent
-from autogen.beta.knowledge import MemoryKnowledgeStore
-from autogen.beta.policies import ConversationPolicy
+from autogen.beta import Agent
+from autogen.beta.events import ToolResultsEvent
 from autogen.beta.tools import ExaToolkit, SandboxCodeTool
 
-from ..core import Flow, FuzzySchema, SafeSlidingWindowPolicy
+from ..core import FuzzySchema
+from ..engine import Engine, NodeRegistered, SSECallback, TopicSeen, UrlCaptured
 from ..tools import KhiveToolkit, khive_available
 from .events import (
     ContradictionFound,
@@ -24,14 +28,9 @@ from .events import (
     DepthRequested,
     ExplorationComplete,
     FindingEmitted,
-    HandoffRequested,
-    NodeRegistered,
     PaperDrafted,
     PaperGapEvent,
     PivotDetected,
-    TeamStarted,
-    TopicSeen,
-    UrlCaptured,
 )
 from .middleware import clean_search_results
 from .models import CrossCheckReport, PaperDraft
@@ -39,7 +38,6 @@ from .prompts import CONNECTOR, CROSS_CHECK, PAPER_WRITER, build_node_instructio
 from .tools import EMISSION_TOOLS, PAPER_TOOLS
 
 logger = logging.getLogger("lionag2.engine")
-SSECallback = Callable[[dict[str, Any]], Any]
 
 
 def _paper_from_raw(raw: str) -> PaperDraft:
@@ -52,14 +50,15 @@ def _paper_from_raw(raw: str) -> PaperDraft:
     )
 
 
-class ResearchEngine:
-    """Flow-native recursive research engine.
+class ResearchEngine(Engine):
+    """Recursive research engine — extends Engine with research domain logic.
 
-    Architecture:
-        - Each agent gets per-agent stream for isolated AG2 turns
-        - Bridge observers on each agent forward research events
-          (FindingEmitted, DepthRequested, etc.) to the engine
-        - Engine coordinates depth expansion and paper writing
+    Pipeline:
+        1. Root exploration node → specialist team with handoff
+        2. Reactive depth expansion (FindingEmitted with high novelty)
+        3. Wait for quiescence
+        4. Cross-check (contradictions, gaps, redundancies)
+        5. Iterative paper writing (gaps trigger more research)
     """
 
     def __init__(
@@ -76,81 +75,51 @@ class ResearchEngine:
         extra_specialists: list[dict[str, Any]] | None = None,
         khive_api_key: str | None = None,
         khive_namespace: str = "lionag2",
-        daytona_image: str = "python:3.12",
+        sandbox_image: str = "python:3.12",
         on_event: SSECallback | None = None,
     ) -> None:
-        config_kw: dict[str, Any] = {}
-        key = api_key or os.getenv("OPENAI_API_KEY")
-        if key:
-            config_kw["api_key"] = key
-        if base_url:
-            config_kw["base_url"] = base_url
-        self.config = OpenAIConfig(model, **config_kw)
+        # Khive knowledge store (if available)
+        has_khive = khive_available() and bool(khive_api_key or os.getenv("KHIVE_API_KEY"))
+        if has_khive:
+            from ..tools import KhiveKnowledgeStore
 
-        self.max_depth = max_depth
-        self.max_concurrent = max_concurrent
-        self._semaphore = asyncio.Semaphore(max_concurrent)
+            knowledge_store = KhiveKnowledgeStore(api_key=khive_api_key, namespace=khive_namespace)
+        else:
+            knowledge_store = None
+
+        super().__init__(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            max_depth=max_depth,
+            max_concurrent=max_concurrent,
+            knowledge_store=knowledge_store,
+            on_event=on_event,
+        )
+
+        self.flow.name = "research"
         self.novelty_threshold = novelty_threshold
         self.paper_max_iterations = paper_max_iterations
         self.paper_quality_threshold = paper_quality_threshold
-        self.on_event = on_event
         self._extra_specialists = extra_specialists or []
 
-        self._sandbox: SandboxCodeTool | None = None
-        if os.getenv("DAYTONA_API_KEY"):
-            try:
-                from autogen.beta.extensions.daytona import DaytonaCodeEnvironment
-
-                self._sandbox = SandboxCodeTool(DaytonaCodeEnvironment(image=daytona_image))
-            except ImportError:
-                logger.warning("daytona SDK not installed")
-
-        self._has_khive = khive_available() and bool(khive_api_key or os.getenv("KHIVE_API_KEY"))
+        self._has_khive = has_khive
         self._khive_api_key = khive_api_key
         self._khive_namespace = khive_namespace
 
-        if self._has_khive:
-            from ..tools import KhiveKnowledgeStore
+        self._sandbox: SandboxCodeTool | None = None
+        try:
+            from autogen.beta.extensions.docker import DockerCodeEnvironment
 
-            self._knowledge_store = KhiveKnowledgeStore(
-                api_key=khive_api_key, namespace=khive_namespace
+            self._sandbox = SandboxCodeTool(
+                DockerCodeEnvironment(image=sandbox_image, network_mode="bridge")
             )
-        else:
-            self._knowledge_store = MemoryKnowledgeStore()
+        except (ImportError, Exception) as exc:
+            logger.warning("Docker sandbox unavailable: %s", exc)
 
-        self._knowledge_config = KnowledgeConfig(
-            store=self._knowledge_store,
-            compact=TailWindowCompact(target=30),
-            compact_trigger=CompactTrigger(max_events=50),
-        )
+    # -- Tool resolution (override) -------------------------------------------
 
-        self.flow = Flow(name="research")
-        self._active_tasks: set[asyncio.Task] = set()
-        self._pending_coros: deque[Any] = deque()
-
-    # -- Helpers --------------------------------------------------------------
-
-    def _record(self, event: BaseEvent) -> None:
-        self.flow.include(event)
-        if self.on_event:
-            d = event.to_dict()
-            d["type"] = type(event).__name__
-            self.on_event(d)
-
-    def _notify(self, kind: str, **data: Any) -> None:
-        if self.on_event:
-            self.on_event({"type": kind, **data})
-
-    def _topic_seen(self, normalized: str) -> bool:
-        return any(ts.normalized == normalized for ts in self.flow.items[TopicSeen])
-
-    def _current_max_depth(self) -> int:
-        nodes = self.flow.items[NodeRegistered]
-        return max((n.depth for n in nodes), default=0)
-
-    # -- Agent construction ---------------------------------------------------
-
-    def _resolve_tools(self, tool_tags: tuple[str, ...]) -> list:
+    def resolve_tools(self, tool_tags: tuple[str, ...]) -> list:
         tools = []
         tags = set(tool_tags)
 
@@ -169,34 +138,10 @@ class ResearchEngine:
             )
         return tools
 
-    def _make_agent(self, spec: dict[str, Any], *, depth: int = 0, node_id: str = "") -> Agent:
-        tools = self._resolve_tools(spec["tools"])
+    # -- Agent construction (override) ----------------------------------------
 
-        if spec.get("model"):
-            config_kw: dict[str, Any] = {}
-            if self.config.api_key:
-                config_kw["api_key"] = self.config.api_key
-            agent_config = OpenAIConfig(spec["model"], **config_kw)
-        else:
-            agent_config = self.config
-
-        agent = Agent(
-            spec["name"],
-            prompt=spec["prompt"],
-            config=agent_config,
-            tools=tools,
-            variables={
-                "agent_name": spec["name"],
-                "role": spec["role"],
-                "depth": depth,
-                "node_id": node_id,
-            },
-            assembly=[
-                ConversationPolicy(),
-                SafeSlidingWindowPolicy(max_events=40, transparent=True),
-            ],
-        )
-
+    def make_agent(self, spec: dict[str, Any], *, depth: int = 0, node_id: str = "") -> Agent:
+        agent = super().make_agent(spec, depth=depth, node_id=node_id)
         engine = self
 
         @agent.observer(FindingEmitted)
@@ -204,7 +149,7 @@ class ResearchEngine:
             engine._record(event)
             if event.novelty > engine.novelty_threshold and event.depth < engine.max_depth:
                 engine._spawn(
-                    engine._spawn_depth_node(
+                    engine.spawn_depth_node(
                         event.claim,
                         event.depth + 1,
                         node_id,
@@ -215,7 +160,7 @@ class ResearchEngine:
         def _on_depth_req(event: DepthRequested) -> None:
             engine._record(event)
             engine._spawn(
-                engine._spawn_depth_node(
+                engine.spawn_depth_node(
                     event.question,
                     event.parent_depth + 1,
                     event.parent_node_id or node_id,
@@ -249,47 +194,19 @@ class ResearchEngine:
 
         return agent
 
-    # -- Depth expansion ------------------------------------------------------
+    # -- Node execution (override) --------------------------------------------
 
-    async def _spawn_depth_node(self, topic: str, depth: int, parent_node_id: str = "") -> None:
-        if depth > self.max_depth:
-            return
-        normalized = topic.strip().lower()
-        if self._topic_seen(normalized):
-            return
-
-        async with self._semaphore:
-            self._record(TopicSeen(normalized=normalized))
-            child_id = uuid.uuid4().hex[:12]
-            team_name = f"team_d{depth}_{uuid.uuid4().hex[:6]}"
-            self._record(
-                NodeRegistered(
-                    node_id=child_id,
-                    topic=topic,
-                    depth=depth,
-                    parent_node_id=parent_node_id,
-                    stream_name=team_name,
-                )
-            )
-            await self._run_team(
-                build_node_instruction(topic, depth, self.max_depth),
-                team_name=team_name,
-                depth=depth,
-                node_id=child_id,
-                parent_node_id=parent_node_id,
-            )
-
-    # -- Team runner ----------------------------------------------------------
-
-    async def _run_team(
+    async def _run_node(
         self,
-        instruction: str,
+        topic: str,
         *,
+        depth: int,
         team_name: str,
-        depth: int = 0,
-        node_id: str = "",
-        parent_node_id: str = "",
+        node_id: str,
+        parent_node_id: str,
     ) -> str:
+        instruction = build_node_instruction(topic, depth, self.max_depth)
+
         if parent_node_id and depth > 0:
             parent_findings = [
                 f for f in self.flow.items[FindingEmitted] if f.node_id == parent_node_id
@@ -303,72 +220,15 @@ class ResearchEngine:
         if self._has_khive:
             roster.append(CONNECTOR)
 
-        self._record(TeamStarted(node_id=node_id, agents=[s["name"] for s in roster], depth=depth))
-        roster_by_name = {s["name"]: s for s in roster}
-        available = ", ".join(roster_by_name.keys())
+        return await self.run_team(
+            roster,
+            instruction,
+            team_name=team_name,
+            depth=depth,
+            node_id=node_id,
+        )
 
-        last_reply = ""
-        current_idx = 0
-        max_turns = len(roster) * 2
-
-        for turn_num in range(max_turns):
-            if current_idx >= len(roster):
-                break
-            spec = roster[current_idx]
-            agent = self._make_agent(spec, depth=depth, node_id=node_id)
-
-            turn = (
-                f"{instruction}\n\nAvailable specialists for handoff: {available}, or 'done' to end."
-                if turn_num == 0
-                else f"Building on previous work, continue:\n\n{last_reply}\n\nAvailable for handoff: {available}, or 'done'."
-            )
-            self._notify("agent_start", node_id=node_id, agent=spec["name"])
-
-            next_agent = [None]
-
-            @agent.observer(HandoffRequested)
-            def _on_handoff(event: HandoffRequested, _out=next_agent) -> None:
-                _out[0] = event.next_agent
-
-            try:
-                reply = await agent.ask(
-                    turn, stream=self.flow.streams[f"{team_name}_{spec['name']}_{turn_num}"]
-                )
-                last_reply = reply.body or ""
-                self._notify(
-                    "agent_done", node_id=node_id, agent=spec["name"], chars=len(last_reply)
-                )
-            except Exception as exc:
-                if "role 'tool'" in str(exc):
-                    stream_key = f"{team_name}_{spec['name']}_{turn_num}"
-                    hist = (
-                        self.flow.progression_items(stream_key)
-                        if stream_key in self.flow._progressions
-                        else []
-                    )
-                    logger.error(
-                        "Orphaned tool result in %s (turn %d, %d events): %s",
-                        spec["name"],
-                        turn_num,
-                        len(hist),
-                        [type(e).__name__ for e in hist],
-                    )
-                logger.error("Agent %s failed: %s", spec["name"], exc)
-                self._notify("agent_error", node_id=node_id, agent=spec["name"], error=str(exc))
-                last_reply = f"[{spec['name']} failed: {exc}]"
-
-            self._drain_pending()
-
-            if next_agent[0] == "done":
-                break
-            if next_agent[0] and next_agent[0] in roster_by_name:
-                current_idx = next(i for i, s in enumerate(roster) if s["name"] == next_agent[0])
-            else:
-                current_idx += 1
-
-        return last_reply
-
-    # -- Pipeline stages ------------------------------------------------------
+    # -- Post-processing stages -----------------------------------------------
 
     async def _run_cross_check(self) -> CrossCheckReport:
         all_findings = self.flow.items.by_type(FindingEmitted)
@@ -465,7 +325,7 @@ class ResearchEngine:
                 engine._record(event)
                 if event.priority == "high":
                     engine._spawn(
-                        engine._spawn_depth_node(
+                        engine.spawn_depth_node(
                             event.research_question,
                             engine._current_max_depth() + 1,
                         )
@@ -497,7 +357,7 @@ class ResearchEngine:
 
         return paper
 
-    # -- Main -----------------------------------------------------------------
+    # -- Main pipeline --------------------------------------------------------
 
     async def run(self, topic: str) -> PaperDraft:
         topic = topic.strip()
@@ -519,21 +379,20 @@ class ResearchEngine:
             )
         )
 
-        await self._run_team(
-            build_node_instruction(topic, 0, self.max_depth),
-            team_name=root_team,
+        await self._run_node(
+            topic,
             depth=0,
+            team_name=root_team,
             node_id=root_id,
+            parent_node_id="",
         )
 
-        while self._active_tasks:
-            await asyncio.gather(*self._active_tasks, return_exceptions=True)
+        await self._wait_for_quiescence()
 
         cross_report = await self._run_cross_check()
         paper = await self._run_paper_loop(cross_report)
 
-        while self._active_tasks:
-            await asyncio.gather(*self._active_tasks, return_exceptions=True)
+        await self._wait_for_quiescence()
 
         self._record(
             ExplorationComplete(
@@ -544,102 +403,6 @@ class ResearchEngine:
             )
         )
         return paper
-
-    def _spawn(self, coro: Any) -> asyncio.Task | None:
-        try:
-            task = asyncio.create_task(coro)
-            self._active_tasks.add(task)
-            task.add_done_callback(self._active_tasks.discard)
-            return task
-        except RuntimeError:
-            self._pending_coros.append(coro)
-            return None
-
-    def _drain_pending(self) -> None:
-        while self._pending_coros:
-            coro = self._pending_coros.popleft()
-            task = asyncio.create_task(coro)
-            self._active_tasks.add(task)
-            task.add_done_callback(self._active_tasks.discard)
-
-    @property
-    def urls(self) -> dict[str, str]:
-        return {u.title: u.url for u in self.flow.items.by_type(UrlCaptured)}
-
-    def export_conversations(self) -> dict[str, list[dict[str, str]]]:
-        """Extract per-agent conversations from flow progressions.
-
-        Returns dict: progression_name → list of {role, content} messages.
-        """
-        from autogen.beta.events.tool_events import ToolCallsEvent, ToolResultsEvent
-
-        convos: dict[str, list[dict[str, str]]] = {}
-        for pname in self.flow.progression_names:
-            if (
-                not pname.startswith("team_")
-                and pname not in ("cross_check",)
-                and not pname.startswith("paper_")
-            ):
-                continue
-            messages: list[dict[str, str]] = []
-            for ev in self.flow[pname]:
-                ev_type = type(ev).__name__
-                if ev_type == "ModelRequest":
-                    for part in getattr(ev, "parts", []):
-                        text = getattr(part, "content", None) or str(part)
-                        if text:
-                            messages.append({"role": "user", "content": text})
-                elif ev_type == "ModelResponse":
-                    for part in getattr(ev, "parts", []):
-                        text = getattr(part, "content", None) or str(part)
-                        if text:
-                            messages.append({"role": "assistant", "content": text})
-                elif isinstance(ev, ToolCallsEvent):
-                    for call in ev.calls:
-                        messages.append(
-                            {
-                                "role": "tool_call",
-                                "content": f"{call.name}({call.arguments})",
-                            }
-                        )
-                elif isinstance(ev, ToolResultsEvent):
-                    for r in ev.results:
-                        result = getattr(r, "result", None)
-                        text = ""
-                        if result:
-                            for part in getattr(result, "parts", []):
-                                text += getattr(part, "content", str(part))
-                        messages.append(
-                            {
-                                "role": "tool_result",
-                                "content": text or "(empty)",
-                            }
-                        )
-            if messages:
-                convos[pname] = messages
-        return convos
-
-    def save_conversations(self, path: str) -> None:
-        """Save conversations as readable markdown."""
-        convos = self.export_conversations()
-        lines = ["# Research Conversations\n\n"]
-        for pname, messages in convos.items():
-            lines.append(f"## {pname}\n\n")
-            for msg in messages:
-                role = msg["role"]
-                content = msg["content"]
-                if role == "user":
-                    lines.append(f"**User:**\n{content}\n\n")
-                elif role == "assistant":
-                    lines.append(f"**Assistant:**\n{content}\n\n")
-                elif role == "tool_call":
-                    lines.append(f"**Tool call:** `{content}`\n\n")
-                elif role == "tool_result":
-                    lines.append(f"**Tool result:**\n```\n{content}\n```\n\n")
-            lines.append("---\n\n")
-
-        with open(path, "w") as f:
-            f.writelines(lines)
 
 
 async def research(
