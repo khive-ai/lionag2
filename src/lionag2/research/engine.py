@@ -56,7 +56,7 @@ class ResearchEngine:
     """Flow-native recursive research engine.
 
     Architecture:
-        - Each agent gets per-agent stream for isolated AG2 turns
+        - Each team shares a single stream so agents see prior turns
         - Bridge observers on each agent forward research events
           (FindingEmitted, DepthRequested, etc.) to the engine
         - Engine coordinates depth expansion and paper writing
@@ -76,7 +76,7 @@ class ResearchEngine:
         extra_specialists: list[dict[str, Any]] | None = None,
         khive_api_key: str | None = None,
         khive_namespace: str = "lionag2",
-        daytona_image: str = "python:3.12",
+        sandbox_image: str = "python:3.12-slim",
         on_event: SSECallback | None = None,
     ) -> None:
         config_kw: dict[str, Any] = {}
@@ -97,13 +97,12 @@ class ResearchEngine:
         self._extra_specialists = extra_specialists or []
 
         self._sandbox: SandboxCodeTool | None = None
-        if os.getenv("DAYTONA_API_KEY"):
-            try:
-                from autogen.beta.extensions.daytona import DaytonaCodeEnvironment
+        try:
+            from autogen.beta.extensions.docker import DockerCodeEnvironment
 
-                self._sandbox = SandboxCodeTool(DaytonaCodeEnvironment(image=daytona_image))
-            except ImportError:
-                logger.warning("daytona SDK not installed")
+            self._sandbox = SandboxCodeTool(DockerCodeEnvironment(image=sandbox_image))
+        except ImportError:
+            logger.warning("docker SDK not installed — code execution disabled")
 
         self._has_khive = khive_available() and bool(khive_api_key or os.getenv("KHIVE_API_KEY"))
         self._khive_api_key = khive_api_key
@@ -332,7 +331,7 @@ class ResearchEngine:
 
             try:
                 reply = await agent.ask(
-                    turn, stream=self.flow.streams[f"{team_name}_{spec['name']}_{turn_num}"]
+                    turn, stream=self.flow.streams[team_name]
                 )
                 last_reply = reply.body or ""
                 self._notify(
@@ -340,14 +339,14 @@ class ResearchEngine:
                 )
             except Exception as exc:
                 if "role 'tool'" in str(exc):
-                    stream_key = f"{team_name}_{spec['name']}_{turn_num}"
                     hist = (
-                        self.flow.progression_items(stream_key)
-                        if stream_key in self.flow._progressions
+                        self.flow.progression_items(team_name)
+                        if team_name in self.flow._progressions
                         else []
                     )
                     logger.error(
-                        "Orphaned tool result in %s (turn %d, %d events): %s",
+                        "Orphaned tool result in %s/%s (turn %d, %d events): %s",
+                        team_name,
                         spec["name"],
                         turn_num,
                         len(hist),

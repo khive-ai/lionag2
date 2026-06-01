@@ -71,13 +71,12 @@ def _build_coordinator(
     # Tools
     exa = ExaToolkit() if os.getenv("EXA_API_KEY") else None
     sandbox = None
-    if os.getenv("DAYTONA_API_KEY"):
-        try:
-            from autogen.beta.extensions.daytona import DaytonaCodeEnvironment
+    try:
+        from autogen.beta.extensions.docker import DockerCodeEnvironment
 
-            sandbox = SandboxCodeTool(DaytonaCodeEnvironment(image="python:3.12"))
-        except ImportError:
-            pass
+        sandbox = SandboxCodeTool(DockerCodeEnvironment(image="python:3.12-slim"))
+    except ImportError:
+        pass
 
     khive_toolkit = None
     if has_khive:
@@ -188,7 +187,7 @@ async def health(request: Request):
             "status": "ok",
             "khive": bool(os.getenv("KHIVE_API_KEY")),
             "exa": bool(os.getenv("EXA_API_KEY")),
-            "daytona": bool(os.getenv("DAYTONA_API_KEY")),
+            "docker": sandbox is not None,
         }
     )
 

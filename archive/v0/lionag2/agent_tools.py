@@ -17,13 +17,14 @@ def tavily_search_sync(query: str) -> str:
     """Search the web for academic papers, datasets, and research sources. Returns titles, snippets, and URLs."""
     try:
         from tavily import TavilyClient
+
         client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY", ""))
-        results = client.search(query, max_results=8, search_depth="advanced", include_raw_content=False)
+        results = client.search(
+            query, max_results=8, search_depth="advanced", include_raw_content=False
+        )
         formatted = []
         for r in results.get("results", []):
-            formatted.append(
-                f"- {r.get('title','')}: {r.get('content','')} ({r.get('url','')})"
-            )
+            formatted.append(f"- {r.get('title', '')}: {r.get('content', '')} ({r.get('url', '')})")
         return "\n".join(formatted) if formatted else "No results found."
     except Exception as exc:
         return f"Search failed: {exc}"
@@ -35,8 +36,9 @@ def fetch_url_sync(url: str) -> str:
     rather than relying on tavily's 200-char snippets.
     """
     try:
-        import httpx
         import re
+
+        import httpx
 
         with httpx.Client(timeout=20.0, follow_redirects=True) as client:
             r = client.get(url, headers={"User-Agent": "lionag2-research/0.1"})
@@ -52,8 +54,10 @@ def fetch_url_sync(url: str) -> str:
         # Decode common entities
         text = (
             text.replace("&amp;", "&")
-            .replace("&lt;", "<").replace("&gt;", ">")
-            .replace("&quot;", '"').replace("&#39;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", '"')
+            .replace("&#39;", "'")
             .replace("&nbsp;", " ")
         )
         # Collapse whitespace
@@ -72,6 +76,7 @@ def _resolve_sandbox_python() -> str:
     with a different VIRTUAL_ENV active. Walk up from this file to find lionag2/.venv.
     """
     import sys
+
     here = Path(__file__).resolve()
     for parent in [here, *here.parents]:
         candidate = parent / ".venv" / "bin" / "python"
@@ -98,7 +103,9 @@ def run_python_sandbox(code: str) -> str:
         try:
             result = subprocess.run(
                 [_SANDBOX_PYTHON, path],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
                 cwd=os.path.dirname(path),
             )
             output = result.stdout
@@ -154,7 +161,9 @@ def make_tools(knowledge):
         """Add a named entity (paper, person, concept, dataset, method) to the shared knowledge graph. Use for objects worth tracking."""
         try:
             result = client.graph.create(name=name, kind=entity_type, description=description)
-            entity_id = getattr(result, "id", None) or getattr(result, "entity_id", None) or "unknown"
+            entity_id = (
+                getattr(result, "id", None) or getattr(result, "entity_id", None) or "unknown"
+            )
             return f"Created entity '{name}' (type={entity_type}, id={entity_id})"
         except Exception as exc:
             return f"graph.create failed: {exc}"
@@ -189,8 +198,7 @@ def make_tools(knowledge):
             if not items:
                 return f"No neighbors of '{name}'."
             return "\n".join(
-                f"- {getattr(e, 'name', '?')} via {getattr(e, 'kind', '?')}"
-                for e in items
+                f"- {getattr(e, 'name', '?')} via {getattr(e, 'kind', '?')}" for e in items
             )
         except Exception as exc:
             return f"graph.neighbors failed: {exc}"
@@ -212,7 +220,9 @@ def make_tools(knowledge):
     def _list_messages() -> str:
         """List inbound messages from other teams."""
         try:
-            result = client.communication.list(lambda_id=knowledge._tree_id, status="unread", limit=10)
+            result = client.communication.list(
+                lambda_id=knowledge._tree_id, status="unread", limit=10
+            )
             items = getattr(result, "items", []) or getattr(result, "messages", []) or []
             if not items:
                 return "No unread messages."

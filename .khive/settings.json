@@ -1,0 +1,7 @@
+{
+  "actor": {
+    "kind": "lambda",
+    "name": "lionagi"
+  },
+  "services": ["*"]
+}

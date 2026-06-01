@@ -7,7 +7,6 @@ import lionagi as li
 
 from .execute import execute_plan
 from .hooks import ResearchHooks
-from .models import ResearchPlan, TeamResult
 from .plan import create_plan
 
 logger = logging.getLogger(__name__)
@@ -23,9 +22,9 @@ async def research(
     hooks: ResearchHooks | None = None,
 ) -> str:
     # Phase 1: Plan
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"[lionag2] Planning research: {topic}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     plan = await create_plan(topic, planner_model=planner_model, guidance=guidance)
 
@@ -35,15 +34,15 @@ async def research(
         print(f"  [{t.id}] {t.name}: {len(t.agent_names)} agents{deps}")
 
     # Phase 2: Execute DAG
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("[lionag2] Executing teams...")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     def on_start(team):
         print(f"\n  >> Starting [{team.id}] {team.name}")
 
     def on_done(team, result):
-        preview = result.output[:200].replace('\n', ' ')
+        preview = result.output[:200].replace("\n", " ")
         print(f"  << Done [{team.id}]: {preview}...")
 
     if hooks is None:
@@ -59,23 +58,21 @@ async def research(
 
     # Phase 3: Synthesize
     if not synthesize:
-        return "\n\n".join(
-            f"## {r.team_id}\n{r.output}" for r in results.values()
-        )
+        return "\n\n".join(f"## {r.team_id}\n{r.output}" for r in results.values())
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("[lionag2] Synthesizing results...")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
-    synth_model = planner_model or li.iModel(provider="openrouter", model="google/gemini-3-flash-preview")
+    synth_model = planner_model or li.iModel(
+        provider="openrouter", model="google/gemini-3-flash-preview"
+    )
     synth_branch = li.Branch(
         chat_model=synth_model,
         system="You synthesize research team outputs into a coherent final report.",
     )
 
-    team_outputs = "\n\n".join(
-        f"## Team: {r.team_id}\n{r.output}" for r in results.values()
-    )
+    team_outputs = "\n\n".join(f"## Team: {r.team_id}\n{r.output}" for r in results.values())
 
     final = await synth_branch.communicate(
         instruction=(
@@ -85,9 +82,9 @@ async def research(
         ),
     )
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("[lionag2] Research complete.")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if hooks:
         report = await hooks.report()

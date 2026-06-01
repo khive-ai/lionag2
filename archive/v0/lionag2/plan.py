@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
-
 import lionagi as li
 
-from .models import ResearchPlan, TeamSpec
+from .models import ResearchPlan
 
 PLANNER_SYSTEM = """\
 You are a research orchestrator. Given a topic, design a DAG of specialist teams.

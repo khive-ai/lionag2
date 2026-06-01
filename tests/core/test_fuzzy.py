@@ -14,13 +14,13 @@ Covers:
 import pytest
 from pydantic import BaseModel
 
-from lionag2.core.utils import FuzzyUtils
 from lionag2.core.schema import FuzzySchema
-
+from lionag2.core.utils import FuzzyUtils
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
+
 
 class SimpleModel(BaseModel):
     score: int
@@ -37,14 +37,14 @@ class RichModel(BaseModel):
 # fuzzy_parse_json
 # ---------------------------------------------------------------------------
 
-class TestFuzzyParseJson:
 
+class TestFuzzyParseJson:
     def test_valid_json_object_passes_through(self):
         data = FuzzyUtils.fuzzy_parse_json('{"key": "value", "num": 42}')
         assert data == {"key": "value", "num": 42}
 
     def test_valid_json_array_passes_through(self):
-        data = FuzzyUtils.fuzzy_parse_json('[1, 2, 3]')
+        data = FuzzyUtils.fuzzy_parse_json("[1, 2, 3]")
         assert data == [1, 2, 3]
 
     def test_unescaped_latex_backslash_alpha(self):
@@ -70,7 +70,7 @@ class TestFuzzyParseJson:
         assert result == {"a": 1, "b": 2}
 
     def test_trailing_comma_in_array_removed(self):
-        raw = '[1, 2, 3,]'
+        raw = "[1, 2, 3,]"
         result = FuzzyUtils.fuzzy_parse_json(raw)
         assert result == [1, 2, 3]
 
@@ -86,7 +86,7 @@ class TestFuzzyParseJson:
         assert result == {"a": 1, "b": 2}
 
     def test_missing_closing_bracket_added(self):
-        raw = '[1, 2, 3'
+        raw = "[1, 2, 3"
         result = FuzzyUtils.fuzzy_parse_json(raw)
         assert result == [1, 2, 3]
 
@@ -198,7 +198,7 @@ class TestFuzzyParseJson:
     def test_unquoted_key_with_spaces_before_colon(self):
         # Whitespace between key token end and ':' — exercises line 246-248
         # (the whitespace-skip loop inside the unquoted-key branch).
-        raw = '{score  : 42}'
+        raw = "{score  : 42}"
         result = FuzzyUtils.fuzzy_parse_json(raw)
         assert result.get("score") == 42
 
@@ -207,8 +207,8 @@ class TestFuzzyParseJson:
 # fuzzy_match_keys
 # ---------------------------------------------------------------------------
 
-class TestFuzzyMatchKeys:
 
+class TestFuzzyMatchKeys:
     def test_exact_keys_pass_through(self):
         data = {"score": 10, "summary": "good"}
         result = FuzzyUtils.fuzzy_match_keys(data, {"score", "summary"})
@@ -231,7 +231,9 @@ class TestFuzzyMatchKeys:
     def test_below_threshold_not_matched_remove_mode(self):
         # "xyz" vs "body_markdown" is far below 0.82
         data = {"xyz": "junk"}
-        result = FuzzyUtils.fuzzy_match_keys(data, {"body_markdown"}, threshold=0.82, handle_unmatched="remove")
+        result = FuzzyUtils.fuzzy_match_keys(
+            data, {"body_markdown"}, threshold=0.82, handle_unmatched="remove"
+        )
         assert "xyz" not in result
         assert "body_markdown" not in result
 
@@ -294,9 +296,7 @@ class TestFuzzyMatchKeys:
         # unmatched input keys, "ignore" mode keeps them (covers line 112 +
         # the tail loop at lines 115-117).
         data = {"score": 1, "extra_a": "x", "extra_b": "y"}
-        result = FuzzyUtils.fuzzy_match_keys(
-            data, {"score"}, handle_unmatched="ignore"
-        )
+        result = FuzzyUtils.fuzzy_match_keys(data, {"score"}, handle_unmatched="ignore")
         assert result["score"] == 1
         assert result["extra_a"] == "x"
         assert result["extra_b"] == "y"
@@ -306,8 +306,8 @@ class TestFuzzyMatchKeys:
 # fuzzy_validate
 # ---------------------------------------------------------------------------
 
-class TestFuzzyValidate:
 
+class TestFuzzyValidate:
     def test_valid_json_correct_keys_produces_model(self):
         raw = '{"score": 42, "summary": "all good"}'
         instance = FuzzyUtils.fuzzy_validate(raw, SimpleModel)
@@ -361,12 +361,12 @@ class TestFuzzyValidate:
 # FuzzySchema
 # ---------------------------------------------------------------------------
 
+
 class _DummyContext:
     """Minimal stand-in for autogen Context (not passed to FuzzySchema.validate path)."""
 
 
 class TestFuzzySchema:
-
     def test_json_schema_is_none(self):
         schema = FuzzySchema(SimpleModel)
         assert schema.json_schema is None

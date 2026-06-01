@@ -160,7 +160,6 @@ async def register_khive_tools(
             tool_filter=["memory", "work", "store"],
         )
     """
-    from autogen import register_function
 
     async with khive_mcp(
         namespace=namespace,

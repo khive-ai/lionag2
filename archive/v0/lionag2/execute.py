@@ -5,7 +5,6 @@ import logging
 from typing import Any
 
 import lionagi as li
-from lionagi.service.types import StreamChunk
 
 from .models import ResearchPlan, TeamResult, TeamSpec
 
@@ -18,10 +17,12 @@ def _build_agent_configs(team: TeamSpec) -> list[dict[str, Any]]:
         is_last = i == len(team.agent_names) - 1
         handoffs = []
         if not is_last:
-            handoffs.append({
-                "target": team.agent_names[i + 1],
-                "condition": f"When {name} has completed their part",
-            })
+            handoffs.append(
+                {
+                    "target": team.agent_names[i + 1],
+                    "condition": f"When {name} has completed their part",
+                }
+            )
 
         system_msg = f"You are {name}, a {role}. "
         if is_last:
@@ -29,13 +30,15 @@ def _build_agent_configs(team: TeamSpec) -> list[dict[str, Any]]:
         else:
             system_msg += f"Hand off to {team.agent_names[i + 1]} when your part is done."
 
-        configs.append({
-            "name": name,
-            "role": role,
-            "system_message": system_msg,
-            "tools": [],
-            "handoffs": handoffs,
-        })
+        configs.append(
+            {
+                "name": name,
+                "role": role,
+                "system_message": system_msg,
+                "tools": [],
+                "handoffs": handoffs,
+            }
+        )
     return configs
 
 
@@ -47,13 +50,18 @@ async def execute_team(
 ) -> TeamResult:
     if llm_config is None:
         import os
+
         llm_config = {
-            "config_list": [{
-                "model": "google/gemini-3-flash-preview",
-                "api_key": os.environ.get("OPENROUTER_API_KEY", os.environ.get("GEMINI_API_KEY", "")),
-                "base_url": "https://openrouter.ai/api/v1",
-                "default_headers": {"HTTP-Referer": "https://khive.ai", "X-Title": "lionag2"},
-            }],
+            "config_list": [
+                {
+                    "model": "google/gemini-3-flash-preview",
+                    "api_key": os.environ.get(
+                        "OPENROUTER_API_KEY", os.environ.get("GEMINI_API_KEY", "")
+                    ),
+                    "base_url": "https://openrouter.ai/api/v1",
+                    "default_headers": {"HTTP-Referer": "https://khive.ai", "X-Title": "lionag2"},
+                }
+            ],
         }
 
     agent_configs = _build_agent_configs(team)
@@ -110,9 +118,7 @@ async def execute_plan(
             context_parts = []
             for dep_id in team.depends_on:
                 if dep_id in results:
-                    context_parts.append(
-                        f"[{dep_id}]: {results[dep_id].output[:2000]}"
-                    )
+                    context_parts.append(f"[{dep_id}]: {results[dep_id].output[:2000]}")
             context = "\n\n".join(context_parts)
             if hooks:
                 context = hooks.truncate_context(context)

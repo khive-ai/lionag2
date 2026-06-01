@@ -247,8 +247,15 @@ DEFAULT_AGENTS = [
     AgentRole(
         name="Analyst",
         role="Quantitative analyst — runs REAL code on REAL data to test the prediction",
-        tools=["tavily_search", "fetch_url", "run_code", "memory_recall", "memory_remember",
-               "graph_add_entity", "graph_add_link"],
+        tools=[
+            "tavily_search",
+            "fetch_url",
+            "run_code",
+            "memory_recall",
+            "memory_remember",
+            "graph_add_entity",
+            "graph_add_link",
+        ],
         system_prompt=(
             "You are Analyst. Your job is REAL quantitative analysis. You have:\n"
             " - DataDigger's dataset list (load instructions included)\n"
@@ -366,13 +373,19 @@ class Citation(BaseModel):
 class Finding(BaseModel):
     claim: str
     evidence: str
-    citations: list[Citation] = Field(default_factory=list, description="Academic citations supporting this finding")
+    citations: list[Citation] = Field(
+        default_factory=list, description="Academic citations supporting this finding"
+    )
     novelty: str = Field(default="", description="How novel is this finding vs prior art")
     confidence: float = Field(
-        default=0.5, ge=0, le=1,
+        default=0.5,
+        ge=0,
+        le=1,
         description="0-1. Boost when: real citation present, code verification ran, cross-branch corroboration. Penalize when: no source, weak evidence, contradicted elsewhere.",
     )
-    code_ref: str | None = Field(default=None, description="Reference to a code block that supports this finding")
+    code_ref: str | None = Field(
+        default=None, description="Reference to a code block that supports this finding"
+    )
     spawned_child: str | None = None
 
 
@@ -416,10 +429,14 @@ class ExplorationTree(BaseModel):
 
 
 class PaperPart(BaseModel):
-    section: str = Field(description="One of: abstract, introduction, methodology, findings, discussion, conclusion")
+    section: str = Field(
+        description="One of: abstract, introduction, methodology, findings, discussion, conclusion"
+    )
     content: str = Field(description="Draft content for this section based on what was discovered")
     sources: list[str] = Field(default_factory=list, description="Sources cited in this part")
-    confidence: float = Field(default=0.5, ge=0, le=1, description="How confident you are in this section")
+    confidence: float = Field(
+        default=0.5, ge=0, le=1, description="How confident you are in this section"
+    )
 
 
 class ExplorationResult(BaseModel):
@@ -452,7 +469,9 @@ class Contradiction(BaseModel):
     branch_b: str = Field(description="Identifier of another branch making a conflicting claim")
     claim_a: str = Field(description="The claim from branch A")
     claim_b: str = Field(description="The conflicting claim from branch B")
-    suggested_resolution: str = Field(default="", description="How to resolve, or what evidence is needed")
+    suggested_resolution: str = Field(
+        default="", description="How to resolve, or what evidence is needed"
+    )
 
 
 class Gap(BaseModel):
@@ -463,7 +482,10 @@ class Gap(BaseModel):
 class CrossCheckReport(BaseModel):
     contradictions: list[Contradiction] = Field(default_factory=list)
     gaps: list[Gap] = Field(default_factory=list)
-    redundancies: list[str] = Field(default_factory=list, description="Findings that appear in multiple branches and should be merged")
+    redundancies: list[str] = Field(
+        default_factory=list,
+        description="Findings that appear in multiple branches and should be merged",
+    )
     summary: str = Field(default="", description="One-paragraph synthesis of the cross-check")
 
 
@@ -481,13 +503,27 @@ class SelfCorrectionReport(BaseModel):
 
 class QualityMetrics(BaseModel):
     citation_count: int = Field(description="Number of real citations referenced")
-    novelty_score: float = Field(ge=0, le=1, description="How novel are the findings vs existing literature")
-    evidence_quality: float = Field(ge=0, le=1, description="Proportion of claims backed by evidence or code verification")
-    contradiction_count: int = Field(description="Number of identified contradictions across branches")
+    novelty_score: float = Field(
+        ge=0, le=1, description="How novel are the findings vs existing literature"
+    )
+    evidence_quality: float = Field(
+        ge=0, le=1, description="Proportion of claims backed by evidence or code verification"
+    )
+    contradiction_count: int = Field(
+        description="Number of identified contradictions across branches"
+    )
     correction_count: int = Field(description="Number of self-corrections made during exploration")
-    coverage_score: float = Field(ge=0, le=1, description="How thoroughly the topic was explored (breadth × depth)")
-    paper_completeness: float = Field(ge=0, le=1, description="Are all paper sections (abstract through conclusion) adequately filled?")
-    verdict: str = Field(description="One-line quality assessment: publishable / needs work / insufficient")
+    coverage_score: float = Field(
+        ge=0, le=1, description="How thoroughly the topic was explored (breadth × depth)"
+    )
+    paper_completeness: float = Field(
+        ge=0,
+        le=1,
+        description="Are all paper sections (abstract through conclusion) adequately filled?",
+    )
+    verdict: str = Field(
+        description="One-line quality assessment: publishable / needs work / insufficient"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -520,13 +556,10 @@ class SharedKnowledge:
         """Recall facts from khive memory via semantic search."""
         try:
             result = self._client.memory.recall(query=query, limit=limit)
-            items = getattr(result, 'items', []) or []
+            items = getattr(result, "items", []) or []
             if not items:
                 return ""
-            return "\n".join(
-                getattr(item, 'content', str(item))
-                for item in items[:limit]
-            )
+            return "\n".join(getattr(item, "content", str(item)) for item in items[:limit])
         except Exception as exc:
             logger.warning("khive memory.recall failed: %s", exc)
             return ""
@@ -562,7 +595,7 @@ def _execute_code(code: str) -> tuple[str, int]:
 # ---------------------------------------------------------------------------
 
 
-from .agent_tools import make_tools, tavily_search_sync  # noqa: E402
+from .agent_tools import make_tools  # noqa: E402
 
 
 def _build_explore_prompt(
@@ -648,33 +681,36 @@ async def _run_team_exploration(
         handoffs = []
         if not is_last:
             next_name = config.agents[i + 1].name
-            handoffs.append({
-                "target": next_name,
-                "condition": f"When {agent_role.name} has completed their part",
-            })
+            handoffs.append(
+                {
+                    "target": next_name,
+                    "condition": f"When {agent_role.name} has completed their part",
+                }
+            )
 
         system = agent_role.system_prompt
         if context:
             system += f"\n\nPrior findings from parent branches:\n{context}"
 
-        agent_configs.append({
-            "name": agent_role.name,
-            "role": agent_role.role,
-            "system_message": system + "\nBe concise — max 4 sentences per turn.",
-            "tools": agent_role.tools,
-            "handoffs": handoffs,
-        })
+        agent_configs.append(
+            {
+                "name": agent_role.name,
+                "role": agent_role.role,
+                "system_message": system + "\nBe concise — max 4 sentences per turn.",
+                "tools": agent_role.tools,
+                "handoffs": handoffs,
+            }
+        )
 
     # Emit team composition event
-    await queue.put({
-        "type": "team_active",
-        "node_id": node.id,
-        "agents": [
-            {"name": a.name, "role": a.role, "tools": a.tools}
-            for a in config.agents
-        ],
-        "timestamp": time.time(),
-    })
+    await queue.put(
+        {
+            "type": "team_active",
+            "node_id": node.id,
+            "agents": [{"name": a.name, "role": a.role, "tools": a.tools} for a in config.agents],
+            "timestamp": time.time(),
+        }
+    )
 
     # Run GroupChat via lionagi AG2 endpoint
     # NOTE: tool_registry must NOT go through iModel kwargs — it leaks into
@@ -685,15 +721,17 @@ async def _run_team_exploration(
         endpoint="group_chat",
         agent_configs=agent_configs,
         llm_config={
-            "config_list": [{
-                "model": config.model,
-                "api_key": os.environ.get(config.api_key_env, ""),
-                "base_url": config.base_url,
-                "default_headers": {
-                    "HTTP-Referer": "https://khive.ai",
-                    "X-Title": "lionag2",
-                },
-            }],
+            "config_list": [
+                {
+                    "model": config.model,
+                    "api_key": os.environ.get(config.api_key_env, ""),
+                    "base_url": config.base_url,
+                    "default_headers": {
+                        "HTTP-Referer": "https://khive.ai",
+                        "X-Title": "lionag2",
+                    },
+                }
+            ],
         },
     )
     model.endpoint._tool_registry = tool_registry
@@ -714,42 +752,50 @@ async def _run_team_exploration(
 
         if ctype == "text" and content:
             transcript_parts.append(f"[{agent}] {content}")
-            await queue.put({
-                "type": "agent_message",
-                "node_id": node.id,
-                "agent": agent or "unknown",
-                "content": content,
-                "timestamp": time.time(),
-            })
+            await queue.put(
+                {
+                    "type": "agent_message",
+                    "node_id": node.id,
+                    "agent": agent or "unknown",
+                    "content": content,
+                    "timestamp": time.time(),
+                }
+            )
         elif ctype == "tool_use":
             tool_name = getattr(chunk, "tool_name", None)
             tool_input = getattr(chunk, "tool_input", None)
-            await queue.put({
-                "type": "tool_call",
-                "node_id": node.id,
-                "agent": agent or "unknown",
-                "tool": tool_name,
-                "args": str(tool_input) if tool_input else "",
-                "timestamp": time.time(),
-            })
+            await queue.put(
+                {
+                    "type": "tool_call",
+                    "node_id": node.id,
+                    "agent": agent or "unknown",
+                    "tool": tool_name,
+                    "args": str(tool_input) if tool_input else "",
+                    "timestamp": time.time(),
+                }
+            )
             transcript_parts.append(f"[{agent} → {tool_name}({str(tool_input)})]")
         elif ctype == "tool_result":
             tool_output = getattr(chunk, "tool_output", None)
-            await queue.put({
-                "type": "tool_result",
-                "node_id": node.id,
-                "agent": agent or "unknown",
-                "output": str(tool_output) if tool_output else "",
-                "timestamp": time.time(),
-            })
+            await queue.put(
+                {
+                    "type": "tool_result",
+                    "node_id": node.id,
+                    "agent": agent or "unknown",
+                    "output": str(tool_output) if tool_output else "",
+                    "timestamp": time.time(),
+                }
+            )
             transcript_parts.append(f"[tool_result] {str(tool_output)}")
         elif ctype == "system" and content:
-            await queue.put({
-                "type": "speaker_change",
-                "node_id": node.id,
-                "info": content,
-                "timestamp": time.time(),
-            })
+            await queue.put(
+                {
+                    "type": "speaker_change",
+                    "node_id": node.id,
+                    "info": content,
+                    "timestamp": time.time(),
+                }
+            )
 
     transcript = "\n".join(transcript_parts)
     node.agent_log.append(f"groupchat transcript ({len(transcript)} chars)")
@@ -790,7 +836,9 @@ async def _run_team_exploration(
 
     return ExplorationResult(
         summary=transcript,
-        findings=[Finding(claim=transcript, evidence="GroupChat transcript (unstructured)", citations=[])],
+        findings=[
+            Finding(claim=transcript, evidence="GroupChat transcript (unstructured)", citations=[])
+        ],
         open_questions=[],
     )
 
@@ -830,14 +878,16 @@ async def explore_node(
             )
 
     # 2. Run agent team (GroupChat or single agent based on config)
-    config = getattr(tree, '_config', None) or ExplorationConfig()
+    config = getattr(tree, "_config", None) or ExplorationConfig()
 
-    await queue.put({
-        "type": "node_searching",
-        "node_id": node.id,
-        "agents": [a.name for a in config.agents],
-        "timestamp": time.time(),
-    })
+    await queue.put(
+        {
+            "type": "node_searching",
+            "node_id": node.id,
+            "agents": [a.name for a in config.agents],
+            "timestamp": time.time(),
+        }
+    )
 
     # Always use AG2 GroupChat — no fallback, debug properly
     result = await _run_team_exploration(node, context, tree, queue, knowledge, config)
@@ -866,14 +916,16 @@ async def explore_node(
 
     # Collect paper parts
     for pp in exploration.paper_parts:
-        await queue.put({
-            "type": "paper_part",
-            "node_id": node.id,
-            "section": pp.section,
-            "content": pp.content,
-            "confidence": pp.confidence,
-            "timestamp": time.time(),
-        })
+        await queue.put(
+            {
+                "type": "paper_part",
+                "node_id": node.id,
+                "section": pp.section,
+                "content": pp.content,
+                "confidence": pp.confidence,
+                "timestamp": time.time(),
+            }
+        )
 
     if exploration.pivot:
         node.agent_log.append(f"pivot: {exploration.pivot}")
@@ -1062,12 +1114,14 @@ async def _cross_check(
 
     corrections_text = report.model_dump_json(indent=2)
 
-    await queue.put({
-        "type": "cross_check",
-        "corrections": corrections_text,
-        "report": report.model_dump(),
-        "timestamp": time.time(),
-    })
+    await queue.put(
+        {
+            "type": "cross_check",
+            "corrections": corrections_text,
+            "report": report.model_dump(),
+            "timestamp": time.time(),
+        }
+    )
 
     knowledge.memory_remember(f"Cross-check: {report.summary}")
     return corrections_text
@@ -1125,7 +1179,9 @@ async def _write_paper(
             code_str = cb.get("code", "")
             output = cb.get("output", "")
             if code_str:
-                node_lines.append(f"\nCODE EXECUTED:\n```python\n{code_str}\n```\nOUTPUT:\n```\n{output}\n```")
+                node_lines.append(
+                    f"\nCODE EXECUTED:\n```python\n{code_str}\n```\nOUTPUT:\n```\n{output}\n```"
+                )
                 all_code_blocks.append(code_str)
 
         for log_line in node.agent_log:
@@ -1136,7 +1192,15 @@ async def _write_paper(
 
     if all_findings_count == 0:
         await queue.put({"type": "synthesis", "text": "No findings.", "timestamp": time.time()})
-        await queue.put({"type": "exploration_done", "total_nodes": len(tree.nodes), "total_findings": 0, "max_depth_reached": 0, "timestamp": time.time()})
+        await queue.put(
+            {
+                "type": "exploration_done",
+                "total_nodes": len(tree.nodes),
+                "total_findings": 0,
+                "max_depth_reached": 0,
+                "timestamp": time.time(),
+            }
+        )
         return ""
 
     # Final paper assembly via LLM
@@ -1147,17 +1211,17 @@ async def _write_paper(
 
     instruction_parts = [
         f"# Research question\n{tree.topic}\n",
-        f"# Exploration stats",
+        "# Exploration stats",
         f"- Total nodes: {len(tree.nodes)}",
         f"- Total findings: {all_findings_count}",
         f"- Total citations gathered: {len(all_citations)}",
         f"- Code executions: {len(all_code_blocks)}",
         f"- Max depth reached: {max((n.depth for n in tree.nodes.values()), default=0)}",
-        f"\n# Per-node research payload (use this to construct the paper):",
+        "\n# Per-node research payload (use this to construct the paper):",
         "\n".join(structured_nodes),
     ]
     if pivots:
-        instruction_parts.append(f"\n# Pivots (hypothesis contradictions):\n" + "\n".join(pivots))
+        instruction_parts.append("\n# Pivots (hypothesis contradictions):\n" + "\n".join(pivots))
     if corrections:
         instruction_parts.append(f"\n# Cross-section corrections from reviewer:\n{corrections}")
     instruction_parts.append(
@@ -1182,14 +1246,16 @@ async def _write_paper(
     pdf_path = await _generate_pdf(tree.topic, paper_text, queue)
 
     max_depth = max((n.depth for n in tree.nodes.values()), default=0)
-    await queue.put({
-        "type": "exploration_done",
-        "total_nodes": len(tree.nodes),
-        "total_findings": all_findings_count,
-        "max_depth_reached": max_depth,
-        "pdf_path": pdf_path,
-        "timestamp": time.time(),
-    })
+    await queue.put(
+        {
+            "type": "exploration_done",
+            "total_nodes": len(tree.nodes),
+            "total_findings": all_findings_count,
+            "max_depth_reached": max_depth,
+            "pdf_path": pdf_path,
+            "timestamp": time.time(),
+        }
+    )
     return paper_text
 
 
@@ -1243,15 +1309,17 @@ async def _self_correct(
 
     revised_text = report.revised_paper or paper_text
 
-    await queue.put({
-        "type": "self_correct",
-        "original_length": len(paper_text),
-        "revised_length": len(revised_text),
-        "revised": revised_text,
-        "corrections": [c.model_dump() for c in report.corrections_applied],
-        "limitations": report.limitations,
-        "timestamp": time.time(),
-    })
+    await queue.put(
+        {
+            "type": "self_correct",
+            "original_length": len(paper_text),
+            "revised_length": len(revised_text),
+            "revised": revised_text,
+            "corrections": [c.model_dump() for c in report.corrections_applied],
+            "limitations": report.limitations,
+            "timestamp": time.time(),
+        }
+    )
 
     return revised_text
 
@@ -1271,6 +1339,7 @@ async def _generate_pdf(topic: str, paper_text: str, queue: asyncio.Queue) -> st
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import re
+
     slug = re.sub(r"[^a-z0-9]+", "_", topic.lower().strip())[:50]
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1279,23 +1348,48 @@ async def _generate_pdf(topic: str, paper_text: str, queue: asyncio.Queue) -> st
 
         try:
             result = subprocess.run(  # noqa: S603
-                ["pdflatex", "-interaction=nonstopmode", "-output-directory", tmpdir, str(tex_path)],  # noqa: S607
-                capture_output=True, text=True, timeout=30,
+                [
+                    "pdflatex",
+                    "-interaction=nonstopmode",
+                    "-output-directory",
+                    tmpdir,
+                    str(tex_path),
+                ],  # noqa: S607
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             pdf_src = Path(tmpdir) / "paper.pdf"
             if pdf_src.exists():
                 pdf_dst = output_dir / f"{slug}.pdf"
                 import shutil
+
                 shutil.copy2(pdf_src, pdf_dst)
-                await queue.put({"type": "pdf_ready", "path": str(pdf_dst), "timestamp": time.time()})
+                await queue.put(
+                    {"type": "pdf_ready", "path": str(pdf_dst), "timestamp": time.time()}
+                )
                 return str(pdf_dst)
             else:
                 logger.warning("pdflatex failed: %s", result.stderr[:500])
-                await queue.put({"type": "pdf_ready", "path": "", "error": "pdflatex compilation failed", "timestamp": time.time()})
+                await queue.put(
+                    {
+                        "type": "pdf_ready",
+                        "path": "",
+                        "error": "pdflatex compilation failed",
+                        "timestamp": time.time(),
+                    }
+                )
                 return None
         except FileNotFoundError:
             logger.warning("pdflatex not installed — skipping PDF generation")
-            await queue.put({"type": "pdf_ready", "path": "", "error": "pdflatex not installed", "timestamp": time.time()})
+            await queue.put(
+                {
+                    "type": "pdf_ready",
+                    "path": "",
+                    "error": "pdflatex not installed",
+                    "timestamp": time.time(),
+                }
+            )
             return None
         except Exception as exc:  # noqa: BLE001
             logger.warning("PDF generation failed: %s", exc)
@@ -1328,11 +1422,17 @@ def _markdown_to_latex(topic: str, markdown: str) -> str:
     markdown = re.sub(r"```([a-zA-Z]*)\n(.*?)\n```", code_block_repl, markdown, flags=re.DOTALL)
 
     # Display math $$...$$
-    markdown = re.sub(r"\$\$(.+?)\$\$", lambda m: stash(f"$${m.group(1)}$$", "dmath"), markdown, flags=re.DOTALL)
+    markdown = re.sub(
+        r"\$\$(.+?)\$\$", lambda m: stash(f"$${m.group(1)}$$", "dmath"), markdown, flags=re.DOTALL
+    )
     # Inline math $...$
-    markdown = re.sub(r"(?<!\\)\$([^$\n]+?)\$", lambda m: stash(f"${m.group(1)}$", "imath"), markdown)
+    markdown = re.sub(
+        r"(?<!\\)\$([^$\n]+?)\$", lambda m: stash(f"${m.group(1)}$", "imath"), markdown
+    )
     # Inline code `...`
-    markdown = re.sub(r"`([^`\n]+?)`", lambda m: stash(f"\\texttt{{{_escape_latex(m.group(1))}}}", "ic"), markdown)
+    markdown = re.sub(
+        r"`([^`\n]+?)`", lambda m: stash(f"\\texttt{{{_escape_latex(m.group(1))}}}", "ic"), markdown
+    )
 
     # Step 2: line-by-line LaTeX conversion (math/code already protected)
     body_lines: list[str] = []
@@ -1369,7 +1469,9 @@ def _markdown_to_latex(topic: str, markdown: str) -> str:
                 body_lines.append("\\begin{itemize}")
                 in_list = True
             content = bullet.group(1)
-            content = re.sub(r"\*\*(.+?)\*\*", lambda m: f"\\textbf{{{_escape_latex(m.group(1))}}}", content)
+            content = re.sub(
+                r"\*\*(.+?)\*\*", lambda m: f"\\textbf{{{_escape_latex(m.group(1))}}}", content
+            )
             body_lines.append(f"\\item {_escape_latex_keep_placeholders(content)}")
             continue
 
@@ -1436,7 +1538,9 @@ def _escape_latex_keep_placeholders(text: str) -> str:
     import re
 
     parts = re.split(r"(@@\w+_\d+@@|\\[a-zA-Z]+\{[^}]*\})", text)
-    return "".join(p if p.startswith("@@") or p.startswith("\\") else _escape_latex(p) for p in parts)
+    return "".join(
+        p if p.startswith("@@") or p.startswith("\\") else _escape_latex(p) for p in parts
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1462,10 +1566,10 @@ async def _evaluate_quality(
     )
 
     # Count actual metrics from the tree
-    total_findings = sum(len(n.findings) for n in tree.nodes.values() if n.status == NodeStatus.COMPLETE)
-    total_citations = sum(
-        len(f.citations) for n in tree.nodes.values() for f in n.findings
+    total_findings = sum(
+        len(n.findings) for n in tree.nodes.values() if n.status == NodeStatus.COMPLETE
     )
+    total_citations = sum(len(f.citations) for n in tree.nodes.values() for f in n.findings)
     total_code = sum(len(n.code_blocks) for n in tree.nodes.values())
     pivots = sum(1 for n in tree.nodes.values() for log in n.agent_log if log.startswith("pivot:"))
 
@@ -1489,17 +1593,22 @@ async def _evaluate_quality(
         except Exception:  # noqa: BLE001
             metrics = QualityMetrics(
                 citation_count=total_citations,
-                novelty_score=0.5, evidence_quality=0.5,
-                contradiction_count=0, correction_count=pivots,
-                coverage_score=0.5, paper_completeness=0.5,
+                novelty_score=0.5,
+                evidence_quality=0.5,
+                contradiction_count=0,
+                correction_count=pivots,
+                coverage_score=0.5,
+                paper_completeness=0.5,
                 verdict="evaluation failed",
             )
 
-    await queue.put({
-        "type": "quality_eval",
-        "metrics": metrics.model_dump(),
-        "timestamp": time.time(),
-    })
+    await queue.put(
+        {
+            "type": "quality_eval",
+            "metrics": metrics.model_dump(),
+            "timestamp": time.time(),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
